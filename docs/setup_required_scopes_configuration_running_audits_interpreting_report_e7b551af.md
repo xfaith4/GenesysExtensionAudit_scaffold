@@ -1,4 +1,3 @@
-```md
 # Genesys Extension Audit (Windows Desktop App)
 
 A Windows (WPF) desktop application that audits **Genesys Cloud** extension data to identify:
@@ -19,29 +18,32 @@ This tool focuses on these Genesys Cloud endpoints:
 
 ## Table of contents
 
-- [Prerequisites](#prerequisites)
-- [Genesys Cloud OAuth setup](#genesys-cloud-oauth-setup)
-- [Required Genesys Cloud permissions (OAuth scopes)](#required-genesys-cloud-permissions-oauth-scopes)
-- [Configuration](#configuration)
-  - [appsettings.json](#appsettingsjson)
-  - [Secrets for local development (user-secrets)](#secrets-for-local-development-user-secrets)
-  - [Environment variables (recommended for CI/packaging)](#environment-variables-recommended-for-cipackaging)
-- [Build and run](#build-and-run)
-- [Running an audit](#running-an-audit)
-- [Interpreting the reports](#interpreting-the-reports)
-  - [Summary](#summary)
-  - [Duplicates By Profile (Work Phone Extension)](#duplicates-by-profile-work-phone-extension)
-  - [Extensions On Profiles But Not Assigned](#extensions-on-profiles-but-not-assigned)
-  - [Other exported sections (if present)](#other-exported-sections-if-present)
-- [Exporting results to CSV](#exporting-results-to-csv)
-- [Troubleshooting](#troubleshooting)
-  - [401 Unauthorized / 403 Forbidden](#401-unauthorized--403-forbidden)
-  - [429 Too Many Requests (rate limiting)](#429-too-many-requests-rate-limiting)
-  - [Audit is slow / large tenants](#audit-is-slow--large-tenants)
-  - [No results / missing users](#no-results--missing-users)
-  - [CSV opens incorrectly in Excel](#csv-opens-incorrectly-in-excel)
-  - [TLS/Proxy/Firewall issues](#tlsproxyfirewall-issues)
-- [Notes and limitations](#notes-and-limitations)
+- [Genesys Extension Audit (Windows Desktop App)](#genesys-extension-audit-windows-desktop-app)
+  - [Table of contents](#table-of-contents)
+  - [Prerequisites](#prerequisites)
+  - [Genesys Cloud OAuth setup](#genesys-cloud-oauth-setup)
+  - [Required Genesys Cloud permissions (OAuth scopes)](#required-genesys-cloud-permissions-oauth-scopes)
+  - [Configuration](#configuration)
+    - [appsettings.json](#appsettingsjson)
+    - [Secrets for local development (user-secrets)](#secrets-for-local-development-user-secrets)
+    - [Environment variables (recommended for CI/packaging)](#environment-variables-recommended-for-cipackaging)
+  - [Build and run](#build-and-run)
+  - [Running an audit](#running-an-audit)
+  - [Interpreting the reports](#interpreting-the-reports)
+    - [Summary](#summary)
+    - [Duplicates By Profile (Work Phone Extension)](#duplicates-by-profile-work-phone-extension)
+    - [Extensions On Profiles But Not Assigned](#extensions-on-profiles-but-not-assigned)
+    - [Other exported sections (if present)](#other-exported-sections-if-present)
+  - [Exporting results to CSV](#exporting-results-to-csv)
+  - [Troubleshooting](#troubleshooting)
+    - [401 Unauthorized / 403 Forbidden](#401-unauthorized--403-forbidden)
+    - [429 Too Many Requests (rate limiting)](#429-too-many-requests-rate-limiting)
+    - [Audit is slow / large tenants](#audit-is-slow--large-tenants)
+    - [No results / missing users](#no-results--missing-users)
+    - [CSV opens incorrectly in Excel](#csv-opens-incorrectly-in-excel)
+    - [TLS/Proxy/Firewall issues](#tlsproxyfirewall-issues)
+  - [Notes and limitations](#notes-and-limitations)
+  - [License](#license)
 
 ---
 
@@ -108,21 +110,21 @@ Non-secret settings are stored in:
 
 **Settings:**
 
-- `Genesys:Region`  
+- `Genesys:Region`
   Your Genesys Cloud region domain, for example:
   - `mypurecloud.com`
   - `usw2.pure.cloud`
   - `euw2.pure.cloud`
 
-- `Genesys:PageSize`  
-  Number of records per page when calling Genesys endpoints. Typical values: `100`–`500`.  
+- `Genesys:PageSize`
+  Number of records per page when calling Genesys endpoints. Typical values: `100`–`500`.
   (Genesys APIs often cap page sizes; if you set it too high the app may clamp it or the API may reject it.)
 
-- `Genesys:IncludeInactive`  
+- `Genesys:IncludeInactive`
   - `false` (default): users are requested with `&state=active`
   - `true`: users are requested without the `state=active` filter (includes inactive users)
 
-- `Genesys:MaxRequestsPerSecond`  
+- `Genesys:MaxRequestsPerSecond`
   Throttling control to reduce the chance of 429 rate limiting.
 
 ### Secrets for local development (user-secrets)
@@ -184,6 +186,7 @@ dotnet run --project .\src\GenesysExtensionAudit.App\GenesysExtensionAudit.App.c
 5. Optionally click **Cancel** during the run.
 
 **What the app fetches:**
+
 - All users across all pages, using:
   - `.../api/v2/users?pageSize={PageSize}&pageNumber={n}&state=active` when `IncludeInactive=false`
   - `.../api/v2/users?pageSize={PageSize}&pageNumber={n}` when `IncludeInactive=true`
@@ -203,36 +206,41 @@ The Summary section aggregates counts such as:
 - Number of findings in each category
 
 Use this as a quick health check:
+
 - High duplicate counts may indicate provisioning drift or bulk updates gone wrong.
 - Many “profile but not assigned” findings often indicate profile data is out of sync with telephony assignments.
 
 ### Duplicates By Profile (Work Phone Extension)
 
-**What it means:**  
+**What it means:**
 More than one user profile contains the **same Work Phone extension** value.
 
 **Why it matters:**
+
 - Duplicate extensions can cause call routing confusion, failed provisioning, or reporting inaccuracies.
 - Even if assignments are correct, profile values may be wrong or copied.
 
 **How to fix:**
+
 - Choose the correct user for the extension.
 - Update other users’ Work Phone extension values to the correct extension (or blank).
 - Re-run the audit to confirm.
 
 ### Extensions On Profiles But Not Assigned
 
-**What it means:**  
+**What it means:**
 A user profile contains a Work Phone extension value, but that extension **does not appear** in the Edge extensions assignment list retrieved from:
 
 `/api/v2/telephony/providers/edges/extensions`
 
 **Common causes:**
+
 - User profile extension field manually edited and no longer matches real assignment
 - Extensions were deleted/recycled
 - The org uses a different telephony approach and the Edge extensions endpoint doesn’t reflect the actual provisioning source
 
 **How to fix:**
+
 - If the extension is supposed to exist: ensure it is created/assigned in Genesys telephony.
 - If the extension is not real: clear or correct the user’s profile extension field.
 
@@ -259,10 +267,12 @@ The application includes a CSV export capability (Excel-friendly) that writes:
 - `InvalidAssignedExtensions.csv`
 
 **Excel-friendly behavior:**
+
 - UTF-8 BOM can be included (recommended for Excel)
 - Values are written as CSV columns so you can filter/sort/pivot
 
 If the UI has an **Export** button:
+
 1. Run an audit.
 2. Click Export and choose an output directory (or accept the default).
 3. Open the files in Excel.
@@ -276,10 +286,12 @@ If your build exposes export via code only, see `ExportService` in the source tr
 ### 401 Unauthorized / 403 Forbidden
 
 **Symptoms:**
+
 - Audit fails immediately
 - Error indicates Unauthorized/Forbidden
 
 **Checks:**
+
 - Client ID/Secret are correct (no extra whitespace)
 - `Genesys:Region` matches your org region
 - OAuth client is configured for **Client Credentials**
@@ -290,9 +302,11 @@ If your build exposes export via code only, see `ExportService` in the source tr
 ### 429 Too Many Requests (rate limiting)
 
 **Symptoms:**
+
 - Audit slows down or fails with 429 responses
 
 **Mitigations:**
+
 - Lower request rate:
   - Reduce `Genesys:MaxRequestsPerSecond`
 - Avoid running during peak admin/provisioning periods
@@ -303,10 +317,12 @@ The app is expected to respect `Retry-After` when returned and retry transient f
 ### Audit is slow / large tenants
 
 **Why:**
+
 - The app must page through all users and all extensions.
 - Large tenants can involve hundreds of pages.
 
 **Suggestions:**
+
 - Use a larger `PageSize` (up to the API limit; commonly 200–500)
 - Keep `MaxRequestsPerSecond` conservative to reduce 429 retries
 - Run during low-usage periods
@@ -314,28 +330,34 @@ The app is expected to respect `Retry-After` when returned and retry transient f
 ### No results / missing users
 
 **If IncludeInactive=false:**
+
 - Only `state=active` users are included.
 - Set `IncludeInactive=true` to include inactive users.
 
 **Also check:**
+
 - Users may have blank Work Phone extension fields; those users won’t appear in profile-based findings.
 
 ### CSV opens incorrectly in Excel
 
 **Symptoms:**
+
 - Columns shifted
 - Quotes/newlines appear wrong
 
 **Checks:**
+
 - Ensure you open the CSV using Excel’s import if your locale expects semicolons instead of commas.
 - If names/fields contain commas, quotes, or newlines, proper CSV escaping is required by the exporter. If you see malformed rows, open an issue and include a sanitized sample row.
 
 ### TLS/Proxy/Firewall issues
 
 **Symptoms:**
+
 - Network errors, name resolution failures, or proxy authentication prompts
 
 **Checks:**
+
 - Verify access to `https://api.{Region}` endpoints from the workstation
 - If your environment requires a proxy, ensure .NET is configured to use it (system proxy settings typically apply)
 - Confirm firewall rules allow outbound HTTPS to Genesys Cloud
@@ -353,4 +375,3 @@ The app is expected to respect `Retry-After` when returned and retry transient f
 ## License
 
 Add your license here (MIT/Apache-2.0/etc.), or remove this section if not applicable.
-```

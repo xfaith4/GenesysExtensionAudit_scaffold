@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet add src/GenesysExtensionAudit.Infrastructure/GenesysExtensionAudit.Infrastructure.csproj package ClosedXML)",
+      "Bash(dotnet build --no-incremental -v quiet)",
+      "Bash(del \"g:\\\\Development\\\\Project Planning\\\\GenesysExtensionAudit_scaffold\\\\src\\\\GenesysExtensionAudit.Core\\\\Application\\\\IAuditOrchestrator.cs\")",
+      "Bash(dotnet new console -n GenesysExtensionAudit.Runner -o src/GenesysExtensionAudit.Runner --framework net8.0)",
+      "Bash(dotnet sln add src/GenesysExtensionAudit.Runner/GenesysExtensionAudit.Runner.csproj)",
+      "Bash(dotnet add src/GenesysExtensionAudit.Runner/GenesysExtensionAudit.Runner.csproj reference src/GenesysExtensionAudit.Core/GenesysExtensionAudit.Core.csproj src/GenesysExtensionAudit.Infrastructure/GenesysExtensionAudit.Infrastructure.csproj)",
+      "Bash(dotnet add src/GenesysExtensionAudit.Runner/GenesysExtensionAudit.Runner.csproj package Microsoft.Extensions.Hosting)",
+      "Bash(dotnet add src/GenesysExtensionAudit.Runner/GenesysExtensionAudit.Runner.csproj package Microsoft.Extensions.Http)",
+      "Bash(dotnet add src/GenesysExtensionAudit.Runner/GenesysExtensionAudit.Runner.csproj package Microsoft.Extensions.Configuration.Json)",
+      "Bash(dotnet add src/GenesysExtensionAudit.Runner/GenesysExtensionAudit.Runner.csproj package Serilog.Extensions.Hosting)",
+      "Bash(dotnet add src/GenesysExtensionAudit.Runner/GenesysExtensionAudit.Runner.csproj package Serilog.Sinks.Console)",
+      "Bash(dotnet add src/GenesysExtensionAudit.Runner/GenesysExtensionAudit.Runner.csproj package Serilog.Sinks.File)",
+      "Bash(dotnet build --no-incremental)",
+      "Bash(dotnet test --no-build)",
+      "Bash(dotnet test)"
+    ]
+  }
+}

@@ -1,35 +1,44 @@
 using System;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using GenesysExtensionAudit.Application;
+using GenesysExtensionAudit.Infrastructure.Application;
+using GenesysExtensionAudit.Infrastructure.Reporting;
+using Microsoft.Win32;
 
 namespace GenesysExtensionAudit.ViewModels;
 
 /// <summary>
 /// ViewModel for running an audit.
-/// Inputs:  PageSize, IncludeInactive
+/// Inputs:  PageSize, IncludeInactive, StaleFlowDays, InactiveUserDays
 /// Controls: Start / Cancel
-/// Feedback: Progress (percent + message), Error surface
+/// Feedback: Progress (percent + message), Error surface, last exported file path
 /// </summary>
 public sealed class RunAuditViewModel : INotifyPropertyChanged
 {
-    private readonly IAuditRunner _auditRunner;
+    private readonly IAuditOrchestrator _orchestrator;
+    private readonly IExcelReportService _excelService;
 
     private int _pageSize = 100;
     private bool _includeInactive;
+    private int _staleFlowDays = 90;
+    private int _inactiveUserDays = 90;
     private bool _isRunning;
     private int _progressPercent;
     private string _progressMessage = string.Empty;
     private string _statusMessage = "Ready.";
     private string? _errorMessage;
+    private string? _lastExportPath;
     private CancellationTokenSource? _cts;
 
-    public RunAuditViewModel(IAuditRunner auditRunner)
+    public RunAuditViewModel(IAuditOrchestrator orchestrator, IExcelReportService excelService)
     {
-        _auditRunner = auditRunner ?? throw new ArgumentNullException(nameof(auditRunner));
+        _orchestrator = orchestrator ?? throw new ArgumentNullException(nameof(orchestrator));
+        _excelService = excelService ?? throw new ArgumentNullException(nameof(excelService));
 
         StartCommand = new RelayCommand(StartAsync, () => !IsRunning);
         CancelCommand = new RelayCommand(Cancel, () => IsRunning);
@@ -56,6 +65,26 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
         get => _includeInactive;
         set => SetField(ref _includeInactive, value);
     }
+
+    public int StaleFlowDays
+    {
+        get => _staleFlowDays;
+        set => SetField(ref _staleFlowDays, Math.Max(1, value));
+    }
+
+    public int InactiveUserDays
+    {
+        get => _inactiveUserDays;
+        set => SetField(ref _inactiveUserDays, Math.Max(1, value));
+    }
+
+    public string? LastExportPath
+    {
+        get => _lastExportPath;
+        private set => SetField(ref _lastExportPath, value);
+    }
+
+    public bool HasExport => !string.IsNullOrWhiteSpace(LastExportPath);
 
     public bool IsRunning
     {
@@ -143,15 +172,40 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
         try
         {
             StatusMessage = "Running audit...";
-            await _auditRunner.RunAsync(new AuditRunOptions
+            var report = await _orchestrator.RunAsync(new AuditRunOptions
             {
                 PageSize = PageSize,
-                IncludeInactiveUsers = IncludeInactive
+                IncludeInactiveUsers = IncludeInactive,
+                StaleFlowThresholdDays = StaleFlowDays,
+                InactiveUserThresholdDays = InactiveUserDays
             }, progress, ct).ConfigureAwait(true);
+
+            ProgressMessage = "Generating Excel report...";
+            var xlsx = await _excelService.GenerateAsync(report, ct).ConfigureAwait(true);
+
+            // Prompt user for save location
+            var dlg = new SaveFileDialog
+            {
+                Title = "Save Audit Report",
+                Filter = "Excel Workbook (*.xlsx)|*.xlsx",
+                FileName = $"GenesysAudit_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx",
+                DefaultExt = ".xlsx"
+            };
+
+            if (dlg.ShowDialog() == true)
+            {
+                await File.WriteAllBytesAsync(dlg.FileName, xlsx, ct).ConfigureAwait(true);
+                LastExportPath = dlg.FileName;
+                OnPropertyChanged(nameof(HasExport));
+                StatusMessage = $"Saved: {Path.GetFileName(dlg.FileName)}";
+            }
+            else
+            {
+                StatusMessage = "Audit complete — export skipped.";
+            }
 
             ProgressPercent = 100;
             ProgressMessage = "Completed.";
-            StatusMessage = "Audit completed successfully.";
         }
         catch (OperationCanceledException)
         {

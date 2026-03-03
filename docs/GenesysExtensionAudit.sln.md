@@ -1,3 +1,5 @@
+# Outline
+
 ```text
 GenesysExtensionAudit/
 ├─ GenesysExtensionAudit.sln
@@ -72,7 +74,7 @@ GenesysExtensionAudit/
 
 ---
 
-### GenesysExtensionAudit.sln
+## GenesysExtensionAudit.sln
 
 ```sln
 Microsoft Visual Studio Solution File, Format Version 12.00
@@ -90,31 +92,31 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GenesysExtensionAudit.Tests
 EndProject
 
 Global
-	GlobalSection(SolutionConfigurationPlatforms) = preSolution
-		Debug|Any CPU = Debug|Any CPU
-		Release|Any CPU = Release|Any CPU
-	EndGlobalSection
-	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{5C9F9F8B-6AA2-4F17-94A4-4C0C7E0E3C8A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{5C9F9F8B-6AA2-4F17-94A4-4C0C7E0E3C8A}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{5C9F9F8B-6AA2-4F17-94A4-4C0C7E0E3C8A}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{5C9F9F8B-6AA2-4F17-94A4-4C0C7E0E3C8A}.Release|Any CPU.Build.0 = Release|Any CPU
+ GlobalSection(SolutionConfigurationPlatforms) = preSolution
+  Debug|Any CPU = Debug|Any CPU
+  Release|Any CPU = Release|Any CPU
+ EndGlobalSection
+ GlobalSection(ProjectConfigurationPlatforms) = postSolution
+  {5C9F9F8B-6AA2-4F17-94A4-4C0C7E0E3C8A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+  {5C9F9F8B-6AA2-4F17-94A4-4C0C7E0E3C8A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+  {5C9F9F8B-6AA2-4F17-94A4-4C0C7E0E3C8A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+  {5C9F9F8B-6AA2-4F17-94A4-4C0C7E0E3C8A}.Release|Any CPU.Build.0 = Release|Any CPU
 
-		{D8E6D0AF-39D0-4D1D-BA06-7C2DA7B27A63}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{D8E6D0AF-39D0-4D1D-BA06-7C2DA7B27A63}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{D8E6D0AF-39D0-4D1D-BA06-7C2DA7B27A63}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{D8E6D0AF-39D0-4D1D-BA06-7C2DA7B27A63}.Release|Any CPU.Build.0 = Release|Any CPU
+  {D8E6D0AF-39D0-4D1D-BA06-7C2DA7B27A63}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+  {D8E6D0AF-39D0-4D1D-BA06-7C2DA7B27A63}.Debug|Any CPU.Build.0 = Debug|Any CPU
+  {D8E6D0AF-39D0-4D1D-BA06-7C2DA7B27A63}.Release|Any CPU.ActiveCfg = Release|Any CPU
+  {D8E6D0AF-39D0-4D1D-BA06-7C2DA7B27A63}.Release|Any CPU.Build.0 = Release|Any CPU
 
-		{4B3C6B5A-2CF8-4D0C-8A1D-8F5D65A6B7F7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{4B3C6B5A-2CF8-4D0C-8A1D-8F5D65A6B7F7}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{4B3C6B5A-2CF8-4D0C-8A1D-8F5D65A6B7F7}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{4B3C6B5A-2CF8-4D0C-8A1D-8F5D65A6B7F7}.Release|Any CPU.Build.0 = Release|Any CPU
+  {4B3C6B5A-2CF8-4D0C-8A1D-8F5D65A6B7F7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+  {4B3C6B5A-2CF8-4D0C-8A1D-8F5D65A6B7F7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+  {4B3C6B5A-2CF8-4D0C-8A1D-8F5D65A6B7F7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+  {4B3C6B5A-2CF8-4D0C-8A1D-8F5D65A6B7F7}.Release|Any CPU.Build.0 = Release|Any CPU
 
-		{A1C80E8C-7E1C-4C27-9B3B-5A2EBA2A6D5A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{A1C80E8C-7E1C-4C27-9B3B-5A2EBA2A6D5A}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{A1C80E8C-7E1C-4C27-9B3B-5A2EBA2A6D5A}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{A1C80E8C-7E1C-4C27-9B3B-5A2EBA2A6D5A}.Release|Any CPU.Build.0 = Release|Any CPU
-	EndGlobalSection
+  {A1C80E8C-7E1C-4C27-9B3B-5A2EBA2A6D5A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+  {A1C80E8C-7E1C-4C27-9B3B-5A2EBA2A6D5A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+  {A1C80E8C-7E1C-4C27-9B3B-5A2EBA2A6D5A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+  {A1C80E8C-7E1C-4C27-9B3B-5A2EBA2A6D5A}.Release|Any CPU.Build.0 = Release|Any CPU
+ EndGlobalSection
 EndGlobal
 ```
 

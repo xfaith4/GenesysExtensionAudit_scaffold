@@ -3,12 +3,14 @@
 ## 1) Tech stack selection
 
 ### UI / Desktop
-- **WPF** on **.NET 8 (Windows)**  
+
+- **WPF** on **.NET 8 (Windows)**
 - **MVVM** pattern:
-  - CommunityToolkit.Mvvm (recommended) or ReactiveUI (optional).  
+  - CommunityToolkit.Mvvm (recommended) or ReactiveUI (optional).
   - Use observable properties, commands, validation, and messenger/events.
 
 ### Composition / DI / Hosting
+
 - **Microsoft.Extensions.Hosting** (Generic Host) inside WPF:
   - `IHost` for DI container, config, and logging.
   - `Microsoft.Extensions.DependencyInjection`
@@ -16,6 +18,7 @@
   - `Microsoft.Extensions.Logging` (Serilog recommended for file logs)
 
 ### HTTP & resiliency
+
 - **HttpClientFactory** (`IHttpClientFactory`)
 - Delegating handlers for:
   - OAuth token acquisition/attach bearer
@@ -24,11 +27,13 @@
   - request/response logging (without secrets)
 
 ### Background tasks & UX
+
 - `async/await` with `CancellationToken`
 - `IProgress<T>` (or `Progress<T>`) to marshal progress updates to UI thread
 - Optional: `System.Threading.Channels` if streaming results/logs to UI
 
 ### Data & reporting
+
 - JSON: `System.Text.Json`
 - CSV export: `CsvHelper` (recommended)
 - Excel export (optional): ClosedXML
@@ -38,6 +43,7 @@
 ## 2) High-level architecture (layers)
 
 ### Presentation (WPF)
+
 - Views: `MainWindow`, `RunAuditView`, `SettingsView`, `ResultsView`, `LogView`
 - ViewModels:
   - `RunAuditViewModel` (inputs, start/cancel, progress)
@@ -46,6 +52,7 @@
 - No HTTP calls in ViewModels; they call application services.
 
 ### Application layer (orchestration/use cases)
+
 - `IAuditRunner`
   - `Task<AuditResult> RunAsync(AuditOptions options, IProgress<AuditProgress> progress, CancellationToken ct)`
 - `AuditOptions`:
@@ -56,6 +63,7 @@
   - counts fetched, elapsed time
 
 ### Domain layer (pure logic)
+
 - Models:
   - `UserProfileExtensionRecord { UserId, Name, State, RawExtension, NormalizedExtension }`
   - `AssignedExtensionRecord { ExtensionId, RawExtension, NormalizedExtension, AssignedToType, AssignedToId, ... }`
@@ -65,6 +73,7 @@
 - Domain should be testable without API.
 
 ### Infrastructure layer (Genesys Cloud + storage)
+
 - `IGenesysClient` / typed API clients:
   - `Task<PagedResult<UserDto>> GetUsersPageAsync(pageNumber, pageSize, includeInactive, ct)`
   - `Task<PagedResult<ExtensionDto>> GetExtensionsPageAsync(pageNumber, pageSize, ct)`
@@ -79,6 +88,7 @@
 ## 3) App composition using Generic Host in WPF
 
 ### Startup pattern
+
 - `App.xaml.cs`:
   - Build `Host.CreateDefaultBuilder()`
   - Configure services
@@ -86,6 +96,7 @@
   - Resolve main window/viewmodel
 
 ### Recommended registrations (sketch)
+
 - `services.AddSingleton<IExtensionNormalizer, ExtensionNormalizer>();`
 - `services.AddSingleton<IAuditAnalyzer, AuditAnalyzer>();`
 - `services.AddSingleton<IAuditRunner, AuditRunner>();`
@@ -105,6 +116,7 @@
 ## 4) Genesys Cloud API integration architecture
 
 ### Typed client approach
+
 Prefer typed clients to keep endpoints explicit and testable:
 
 - `GenesysUsersClient : IGenesysUsersClient`
@@ -113,17 +125,19 @@ Prefer typed clients to keep endpoints explicit and testable:
 Each uses an injected `HttpClient` from factory.
 
 ### Query composition (important detail)
+
 - Users endpoint:
   - When `IncludeInactive == false`:
     - `/api/v2/users?pageSize={PageSize}&pageNumber={page}&state=active`
   - When `IncludeInactive == true`:
-    - `/api/v2/users?pageSize={PageSize}&pageNumber={page}`  
+    - `/api/v2/users?pageSize={PageSize}&pageNumber={page}`
     - (do **not** send `state=` empty)
 
 - Extensions endpoint:
   - `/api/v2/telephony/providers/edges/extensions?pageSize={PageSize}&pageNumber={page}`
 
 ### Pagination orchestration
+
 Centralize paging to avoid duplicating logic:
 - `IPaginator` with:
   - `IAsyncEnumerable<T> FetchAllAsync(Func<int, Task<PagedResult<T>>> getPage, ct)`
@@ -138,6 +152,7 @@ Centralize paging to avoid duplicating logic:
 ## 5) Background execution, cancellation, and progress reporting
 
 ### Execution flow
+
 `AuditRunner.RunAsync(...)` does:
 
 1. Report progress: “Fetching users…”
@@ -154,6 +169,7 @@ Centralize paging to avoid duplicating logic:
 7. Return `AuditResult` with metadata (timestamp, options, counts)
 
 ### In WPF ViewModel
+
 - Keep a `CancellationTokenSource _cts`
 - Start command:
   - disables UI inputs
@@ -167,6 +183,7 @@ Centralize paging to avoid duplicating logic:
 ## 6) Reliability: retry/backoff, rate limiting, logging
 
 ### Retry/backoff
+
 - Use Polly policy on the API client pipeline:
   - retry on 429/408/5xx + transient network
   - respect `Retry-After` when present
@@ -175,12 +192,14 @@ Centralize paging to avoid duplicating logic:
   - on 401: token provider reacquires token and retry once
 
 ### Rate limiting
+
 - Simple process-wide limiter (recommended):
   - e.g., `maxRequestsPerSecond` configurable
   - shared across both endpoints
 - Keep paging sequential by default to minimize 429s.
 
 ### Logging/telemetry
+
 - Structured logs to file:
   - request path (no query secrets), status code, elapsed, retry count
   - correlation ids if Genesys returns any headers
@@ -191,15 +210,18 @@ Centralize paging to avoid duplicating logic:
 ## 7) Key components (suggested class list)
 
 ### Presentation
+
 - `RunAuditViewModel`
 - `ResultsViewModel`
 - `SettingsViewModel`
 
 ### Application
+
 - `AuditRunner : IAuditRunner`
 - `AuditOptions`, `AuditResult`, `AuditProgress`
 
 ### Domain
+
 - `ExtensionNormalizer`
 - `AuditAnalyzer`
 - domain result models:
@@ -209,6 +231,7 @@ Centralize paging to avoid duplicating logic:
   - `InvalidProfileExtension` (optional report)
 
 ### Infrastructure
+
 - `TokenProvider : ITokenProvider`
 - `OAuthBearerHandler : DelegatingHandler`
 - `GenesysUsersClient`
@@ -220,6 +243,7 @@ Centralize paging to avoid duplicating logic:
 ---
 
 ## 8) UI/UX implications (minimal but practical)
+
 - Inputs:
   - Region (api/auth base)
   - ClientId, ClientSecret (secured)
@@ -238,6 +262,7 @@ Centralize paging to avoid duplicating logic:
 ---
 
 ## 9) Recommended defaults
+
 - .NET 8 WPF + CommunityToolkit.Mvvm
 - Generic Host + DI
 - HttpClientFactory + Polly

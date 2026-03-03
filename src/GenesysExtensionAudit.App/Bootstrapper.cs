@@ -6,12 +6,12 @@ using GenesysExtensionAudit.Infrastructure.Domain.Services;
 using GenesysExtensionAudit.Infrastructure.Genesys.Clients;
 using GenesysExtensionAudit.Infrastructure.Genesys.Pagination;
 using GenesysExtensionAudit.Infrastructure.Http;
+using GenesysExtensionAudit.Infrastructure.Reporting;
 using GenesysExtensionAudit.ViewModels;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace GenesysExtensionAudit;
 
@@ -49,7 +49,6 @@ public static class Bootstrapper
                 // Core domain services
                 services.AddSingleton<IExtensionNormalizer, ExtensionNormalizer>();
                 services.AddSingleton<IAuditAnalyzer, AuditAnalyzer>();
-                services.AddSingleton<IAuditRunner, AuditRunner>();
 
                 // HTTP handlers (must be transient for AddHttpMessageHandler)
                 services.AddTransient<OAuthBearerHandler>();
@@ -73,7 +72,31 @@ public static class Bootstrapper
                     .AddHttpMessageHandler<HttpLoggingHandler>()
                     .AddHttpMessageHandler<RateLimitHandler>();
 
+                services.AddHttpClient<IGenesysGroupsClient, GenesysGroupsClient>()
+                    .AddHttpMessageHandler<OAuthBearerHandler>()
+                    .AddHttpMessageHandler<HttpLoggingHandler>()
+                    .AddHttpMessageHandler<RateLimitHandler>();
+
+                services.AddHttpClient<IGenesysQueuesClient, GenesysQueuesClient>()
+                    .AddHttpMessageHandler<OAuthBearerHandler>()
+                    .AddHttpMessageHandler<HttpLoggingHandler>()
+                    .AddHttpMessageHandler<RateLimitHandler>();
+
+                services.AddHttpClient<IGenesysFlowsClient, GenesysFlowsClient>()
+                    .AddHttpMessageHandler<OAuthBearerHandler>()
+                    .AddHttpMessageHandler<HttpLoggingHandler>()
+                    .AddHttpMessageHandler<RateLimitHandler>();
+
+                services.AddHttpClient<IGenesysDidsClient, GenesysDidsClient>()
+                    .AddHttpMessageHandler<OAuthBearerHandler>()
+                    .AddHttpMessageHandler<HttpLoggingHandler>()
+                    .AddHttpMessageHandler<RateLimitHandler>();
+
                 services.AddSingleton<IPaginator, Paginator>();
+
+                // Orchestrator + reporting
+                services.AddSingleton<IAuditOrchestrator, AuditOrchestrator>(); // IAuditOrchestrator is in Infrastructure.Application
+                services.AddSingleton<IExcelReportService, ExcelReportService>();
 
                 // Navigation / MVVM shell
                 services.AddSingleton<INavigationService, NavigationService>();

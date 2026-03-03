@@ -35,6 +35,9 @@ public sealed class GenesysUserDto
     [JsonPropertyName("name")]
     public string? Name { get; init; }
 
+    [JsonPropertyName("email")]
+    public string? Email { get; init; }
+
     /// <summary>
     /// Typically "active" or "inactive" when requested via /api/v2/users?state=...
     /// </summary>
@@ -47,6 +50,14 @@ public sealed class GenesysUserDto
     /// </summary>
     [JsonPropertyName("primaryContactInfo")]
     public List<GenesysPrimaryContactInfoDto>? PrimaryContactInfo { get; init; }
+
+    /// <summary>
+    /// Date/time of the last OAuth token issued to this user.
+    /// Populated when fetching with expand=tokenLastIssuedDate.
+    /// May be null for service accounts or users who have never logged in via OAuth.
+    /// </summary>
+    [JsonPropertyName("tokenLastIssuedDate")]
+    public DateTimeOffset? TokenLastIssuedDate { get; init; }
 }
 
 public sealed class GenesysPrimaryContactInfoDto

@@ -33,7 +33,8 @@ public sealed class GenesysUsersClient : GenesysCloudApiClient, IGenesysUsersCli
         CancellationToken ct)
     {
         var state = includeInactive ? "" : "&state=active";
-        var path = $"/api/v2/users?pageSize={pageSize}&pageNumber={pageNumber}{state}";
+        // expand=tokenLastIssuedDate surfaces last-login info for inactive-user checks
+        var path = $"/api/v2/users?pageSize={pageSize}&pageNumber={pageNumber}{state}&expand=tokenLastIssuedDate";
 
         var dto = await GetJsonAsync<UsersPageDto>(path, ct).ConfigureAwait(false);
 

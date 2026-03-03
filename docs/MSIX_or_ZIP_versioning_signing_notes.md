@@ -1,4 +1,3 @@
-```md
 # RELEASE.md — Release Packaging Plan & Build Artifacts
 
 This document describes how to produce **release-ready Windows packages** for the Genesys Extension Audit desktop app, including **artifact types (MSIX / ZIP)**, **versioning**, **signing**, and **CI-friendly build commands**.
@@ -23,15 +22,18 @@ A release should provide:
 **Best for**: enterprise distribution, managed installs, clean uninstall, automatic updates (if you later add an App Installer feed).
 
 **Pros**
+
 - Supports signing and integrity validation
 - Cleaner install/uninstall
 - Supports dependency installation and identity
 
 **Cons**
+
 - Requires a signing certificate for best UX
 - Some locked-down environments restrict MSIX
 
 **Output example**
+
 - `GenesysExtensionAudit_<version>_x64.msix`
 
 > If your solution does not currently include a Windows Application Packaging Project (.wapproj), add one to generate MSIX cleanly. If you already have one, use it as the MSIX packaging source of truth.
@@ -43,15 +45,18 @@ A release should provide:
 **Best for**: quick internal distribution, restricted environments, “no-install” usage.
 
 **Pros**
+
 - Simple download/unzip/run
 - No installer restrictions
 
 **Cons**
+
 - No install identity, no clean uninstall
 - SmartScreen warnings likely without signing
 - Users can run outdated copies
 
 **Output example**
+
 - `GenesysExtensionAudit_<version>_win-x64.zip`
 
 ZIP should contain a self-contained published output (so users do **not** need the .NET runtime installed).
@@ -104,6 +109,7 @@ Recommended mapping:
 - `MSIX Package Version`: must be `Major.Minor.Build.Revision` (4-part numeric)
 
 **MSIX version note:** MSIX requires `A.B.C.D` numeric. Suggested conversion:
+
 - `SemVer 1.4.2` → `1.4.2.0`
 - For CI builds: `1.4.2.<runNumber>` if you need unique packages (but keep official releases as `.0`)
 
@@ -166,6 +172,7 @@ dotnet publish .\src\GenesysExtensionAudit.App\GenesysExtensionAudit.App.csproj 
 ```
 
 Output location (typical):
+
 - `src/GenesysExtensionAudit.App/bin/Release/net8.0-windows/win-x64/publish/`
 
 ### 7.2 Create ZIP
@@ -184,6 +191,7 @@ Compress-Archive -Path (Join-Path $PublishDir "*") -DestinationPath $ZipPath
 ```
 
 **ZIP contents should include**
+
 - `GenesysExtensionAudit.App.exe` (or your final app exe name)
 - `.dll` dependencies (if not single-file)
 - `appsettings.json` (non-secret defaults)
@@ -191,6 +199,7 @@ Compress-Archive -Path (Join-Path $PublishDir "*") -DestinationPath $ZipPath
 - `LICENSE` / notices as applicable
 
 **Do not include**
+
 - Secrets (Client Secret, tokens)
 - Developer-only files
 - Test data
@@ -202,6 +211,7 @@ Compress-Archive -Path (Join-Path $PublishDir "*") -DestinationPath $ZipPath
 There are two common approaches:
 
 ### Option A — Windows Application Packaging Project (.wapproj) (recommended)
+
 1. Add a Packaging Project to the solution (if not already present).
 2. Reference the WPF application project.
 3. Configure:
@@ -231,17 +241,20 @@ Possible but less standard for WPF unless you already wired tooling. Prefer Opti
 ## 9. Signing guidance
 
 ### 9.1 Why sign?
+
 - Reduces SmartScreen warnings
 - Builds trust in enterprise environments
 - Verifies integrity and publisher identity
 
 ### 9.2 What to sign
+
 - **MSIX** must be signed to install (self-signed works internally; public releases should use a trusted cert).
 - For **ZIP portable distribution**, you may optionally sign:
   - the main `.exe` (Authenticode)
   - and/or provide checksums
 
 ### 9.3 Certificate options
+
 - **Enterprise internal distribution**: internal CA certificate is acceptable (users must trust the root).
 - **Public distribution**: acquire a public code signing cert (OV or EV).
   - EV improves SmartScreen reputation faster but is more complex/costly.
@@ -256,6 +269,7 @@ signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a $FileTo
 
 ### 9.5 Signing MSIX
 MSIX signing is typically done as part of the packaging build (wapproj). Ensure:
+
 - `AppxPackageSigningEnabled=true`
 - certificate is present in CI secrets or pulled from a secure store
 
@@ -293,6 +307,7 @@ Use consistent names so users can tell what they’re downloading:
 - `SHA256SUMS.txt`
 
 If you publish pre-releases:
+
 - append label in GitHub Release title and notes (artifact filenames can remain clean, or include `-rc1` if you prefer).
 
 ---
@@ -300,6 +315,7 @@ If you publish pre-releases:
 ## 12. Release checklist
 
 ### 12.1 Pre-release checks (quality gates)
+
 - App runs end-to-end against large tenants (pagination across many pages)
 - Rate-limit behavior (429 + Retry-After) validated
 - Cancellation tested during:
@@ -314,6 +330,7 @@ If you publish pre-releases:
 (These match the QA pass scope described in `qa_specialist_output.md`.)
 
 ### 12.2 Packaging checks
+
 - ZIP contains no secrets
 - Self-contained output launches on a clean machine
 - MSIX installs/uninstalls cleanly (if produced)
@@ -321,6 +338,7 @@ If you publish pre-releases:
 - Checksums generated and included
 
 ### 12.3 Documentation checks
+
 - `README.md` updated (scopes, region config, IncludeInactive behavior)
 - Include a brief note in the GitHub Release notes about:
   - endpoints audited
