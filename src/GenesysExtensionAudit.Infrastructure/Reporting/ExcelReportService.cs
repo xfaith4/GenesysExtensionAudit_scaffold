@@ -37,6 +37,7 @@ public sealed class ExcelReportService : IExcelReportService
         WriteExtDuplicatesProfileSheet(wb, report);
         WriteExtPoolVsProfileSheet(wb, report);
         WriteDidMismatchSheet(wb, report);
+        WriteAuditLogsSheet(wb, report);
         WriteEmptyGroupsSheet(wb, report);
         WriteEmptyQueuesSheet(wb, report);
         WriteStaleFlowsSheet(wb, report);
@@ -58,38 +59,40 @@ public sealed class ExcelReportService : IExcelReportService
 
         var rows = new[]
         {
-            ("Extension Duplicates (Profile)", er.DuplicateProfileExtensions.Count, "Critical", "Multiple users share the same work-phone extension"),
-            ("Extension Pool vs Profile Mismatches", er.ProfileExtensionsNotAssigned.Count + er.AssignedExtensionsMissingFromProfiles.Count, "Warning", "Extensions in pool not on profiles, or on profiles not in pool"),
-            ("Duplicate Extension Assignments", er.DuplicateAssignedExtensions.Count, "Critical", "Same extension assigned more than once in the telephony pool"),
-            ("Invalid Profile Extensions", er.InvalidProfileExtensions.Count, "Warning", "Extension values on user profiles that failed normalization"),
-            ("Invalid Pool Extensions", er.InvalidAssignedExtensions.Count, "Warning", "Extension values in pool that failed normalization"),
-            ("Empty Groups", report.GroupFindings.Count(f => f.Issue.Contains("Empty")), "Warning", "Groups with zero members"),
-            ("Single-Member Groups", report.GroupFindings.Count(f => f.Issue.Contains("Single")), "Info", "Groups with only one member — review if intentional"),
-            ("Empty Queues", report.QueueFindings.Count(f => f.Issue.Contains("Empty")), "Critical", "Routing queues with no agents"),
-            ("Duplicate Queue Names", report.QueueFindings.Count(f => f.Issue.Contains("Duplicate")), "Warning", "Queues with identical names (case-insensitive)"),
-            ("Stale/Unpublished Flows", report.FlowFindings.Count, "Warning", $"Flows not republished in {report.Options.StaleFlowThresholdDays}+ days or never published"),
-            ("Inactive Users (No Recent Login)", report.InactiveUserFindings.Count, "Warning", $"Users with no OAuth login in {report.Options.InactiveUserThresholdDays}+ days"),
-            ("DID Mismatches", report.DidFindings.Count, "Warning", "DIDs unassigned, orphaned, or assigned to inactive users"),
+            ("Ext_Duplicates_Profile", "Extension Duplicates (Profile)", report.Options.RunExtensionAudit, er.DuplicateProfileExtensions.Count, "Critical", "Multiple users share the same work-phone extension"),
+            ("Ext_Pool_vs_Profile", "Extension Pool vs Profile Mismatches", report.Options.RunExtensionAudit, er.ProfileExtensionsNotAssigned.Count + er.AssignedExtensionsMissingFromProfiles.Count, "Warning", "Extensions in pool not on profiles, or on profiles not in pool"),
+            ("Invalid_Extensions", "Invalid Extension Values", report.Options.RunExtensionAudit, er.InvalidProfileExtensions.Count + er.InvalidAssignedExtensions.Count, "Warning", "Profile/pool extension values that failed normalization"),
+            ("Empty_Groups", "Empty/Single-Member Groups", report.Options.RunGroupAudit, report.GroupFindings.Count, "Warning", "Groups with zero or one member"),
+            ("Empty_Queues", "Empty/Duplicate Queues", report.Options.RunQueueAudit, report.QueueFindings.Count, "Warning", "Queues with zero members or duplicate names"),
+            ("Stale_Flows", "Stale/Unpublished Flows", report.Options.RunFlowAudit, report.FlowFindings.Count, "Warning", $"Flows not republished in {report.Options.StaleFlowThresholdDays}+ days or never published"),
+            ("Inactive_Users", "Inactive Users (No Recent Login)", report.Options.RunInactiveUserAudit, report.InactiveUserFindings.Count, "Warning", $"Users with no OAuth login in {report.Options.InactiveUserThresholdDays}+ days"),
+            ("DID_Mismatches", "DID Mismatches", report.Options.RunDidAudit, report.DidFindings.Count, "Warning", "DIDs unassigned, orphaned, or assigned to inactive users"),
+            ("Audit_Logs", "Audit Logs Events", report.Options.RunAuditLogs, report.AuditLogFindings.Count, "Info", "Audit transaction events returned from Genesys audit logs query"),
         };
 
-        var totalFindings = rows.Sum(r => r.Item2);
+        var totalFindings = rows.Where(r => r.Item3).Sum(r => r.Item4);
+        var duration = report.RunCompletedAtUtc > report.RunStartedAtUtc
+            ? report.RunCompletedAtUtc - report.RunStartedAtUtc
+            : TimeSpan.Zero;
 
-        string[] headers = ["Check", "Findings", "Severity", "Description"];
-        var ws2 = WriteSheetHeader(ws, "Genesys Cloud Audit — Executive Summary",
+        string[] headers = ["Sheet", "Audit", "Performed", "Items", "Severity", "Description"];
+        WriteSheetHeader(ws, "Genesys Cloud Audit — Executive Summary",
             report, totalFindings, headers);
 
         int row = 4;
-        foreach (var (check, count, severity, desc) in rows)
+        foreach (var (sheet, check, performed, count, severity, desc) in rows)
         {
-            ws.Cell(row, 1).Value = check;
-            ws.Cell(row, 2).Value = count;
-            ws.Cell(row, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 3).Value = severity;
-            ws.Cell(row, 4).Value = desc;
+            ws.Cell(row, 1).Value = sheet;
+            ws.Cell(row, 2).Value = check;
+            ws.Cell(row, 3).Value = performed ? "Yes" : "No";
+            ws.Cell(row, 4).Value = count;
+            ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 5).Value = severity;
+            ws.Cell(row, 6).Value = desc;
 
             // Color-code severity + row
-            var rowRange = ws.Range(row, 1, row, 4);
-            var severityCell = ws.Cell(row, 3);
+            var rowRange = ws.Range(row, 1, row, 6);
+            var severityCell = ws.Cell(row, 5);
             if (severity == "Critical")
                 severityCell.Style.Fill.BackgroundColor = SeverityCritical;
             else if (severity == "Warning")
@@ -97,19 +100,32 @@ public sealed class ExcelReportService : IExcelReportService
             else
                 severityCell.Style.Fill.BackgroundColor = SeverityInfo;
 
+            if (!performed)
+                ws.Cell(row, 3).Style.Fill.BackgroundColor = XLColor.FromHtml("#E5E7EB");
+
             if (row % 2 == 0)
             {
-                foreach (var cell in rowRange.Cells().Where(c => c.Address.ColumnNumber != 3))
+                foreach (var cell in rowRange.Cells().Where(c => c.Address.ColumnNumber != 5))
                     cell.Style.Fill.BackgroundColor = AltRowBg;
             }
 
             row++;
         }
 
-        ws.Column(2).Width = 12;
+        // Run metadata block
+        ws.Cell(row + 1, 1).Value = "Run Start (UTC)";
+        ws.Cell(row + 1, 2).Value = report.RunStartedAtUtc.ToString("yyyy-MM-dd HH:mm:ss");
+        ws.Cell(row + 2, 1).Value = "Run End (UTC)";
+        ws.Cell(row + 2, 2).Value = report.RunCompletedAtUtc.ToString("yyyy-MM-dd HH:mm:ss");
+        ws.Cell(row + 3, 1).Value = "Total Duration";
+        ws.Cell(row + 3, 2).Value = duration.ToString(@"hh\:mm\:ss");
+        ws.Range(row + 1, 1, row + 3, 1).Style.Font.Bold = true;
+
+        ws.Column(1).Width = 24;
         ws.Column(3).Width = 12;
-        AdjustColumns(ws, 4, minWidth: 20, maxWidth: 80);
-        ws.Column(1).Width = 42;
+        ws.Column(4).Width = 10;
+        ws.Column(5).Width = 12;
+        AdjustColumns(ws, 6, minWidth: 10, maxWidth: 80);
     }
 
     // ─── Extension Duplicates (Profile) ────────────────────────────────────
@@ -192,6 +208,37 @@ public sealed class ExcelReportService : IExcelReportService
         }
 
         AdjustColumns(ws, 6);
+    }
+
+    // ─── Audit Logs ──────────────────────────────────────────────────────────
+
+    private static void WriteAuditLogsSheet(IXLWorkbook wb, AuditReportData report)
+    {
+        var ws = wb.Worksheets.Add("Audit_Logs");
+        var findings = report.AuditLogFindings;
+
+        string[] headers = ["Timestamp (UTC)", "Service", "Action", "User Name", "User Email", "Entity Type", "Entity Name", "Audit ID"];
+        WriteSheetHeader(ws, "Audit Logs Events", report, findings.Count, headers);
+
+        int row = 4;
+        foreach (var f in findings)
+        {
+            WriteRow(
+                ws,
+                row,
+                f.TimestampUtc?.ToString("yyyy-MM-dd HH:mm:ss"),
+                f.ServiceName,
+                f.Action,
+                f.UserName,
+                f.UserEmail,
+                f.EntityType,
+                f.EntityName,
+                f.AuditId);
+            ApplyAltRow(ws, row, 8);
+            row++;
+        }
+
+        AdjustColumns(ws, 8);
     }
 
     // ─── Empty Groups ───────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ using GenesysExtensionAudit.Infrastructure.Http;
 using GenesysExtensionAudit.Infrastructure.Reporting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 namespace GenesysExtensionAudit.Infrastructure.Application;
 
@@ -22,6 +23,7 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
     private readonly IGenesysQueuesClient _queuesClient;
     private readonly IGenesysFlowsClient _flowsClient;
     private readonly IGenesysDidsClient _didsClient;
+    private readonly IGenesysAuditLogsClient _auditLogsClient;
     private readonly IPaginator _paginator;
     private readonly GenesysRegionOptions _region;
     private readonly ILogger<AuditOrchestrator> _logger;
@@ -33,6 +35,7 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
         IGenesysQueuesClient queuesClient,
         IGenesysFlowsClient flowsClient,
         IGenesysDidsClient didsClient,
+        IGenesysAuditLogsClient auditLogsClient,
         IPaginator paginator,
         IOptions<GenesysRegionOptions> regionOptions,
         ILogger<AuditOrchestrator> logger)
@@ -43,6 +46,7 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
         _queuesClient = queuesClient ?? throw new ArgumentNullException(nameof(queuesClient));
         _flowsClient = flowsClient ?? throw new ArgumentNullException(nameof(flowsClient));
         _didsClient = didsClient ?? throw new ArgumentNullException(nameof(didsClient));
+        _auditLogsClient = auditLogsClient ?? throw new ArgumentNullException(nameof(auditLogsClient));
         _paginator = paginator ?? throw new ArgumentNullException(nameof(paginator));
         _region = regionOptions?.Value ?? throw new ArgumentNullException(nameof(regionOptions));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -53,69 +57,177 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
         IProgress<AuditProgress> progress,
         CancellationToken ct)
     {
+        var runStartedUtc = DateTimeOffset.UtcNow;
         var ps = Math.Clamp(options.PageSize, 1, 500);
+        var runAny =
+            options.RunExtensionAudit ||
+            options.RunGroupAudit ||
+            options.RunQueueAudit ||
+            options.RunFlowAudit ||
+            options.RunInactiveUserAudit ||
+            options.RunDidAudit ||
+            options.RunAuditLogs;
+
+        if (!runAny)
+            throw new InvalidOperationException("At least one audit path must be selected.");
+
         _logger.LogInformation(
-            "Audit started. PageSize={PageSize} IncludeInactive={IncludeInactive} StaleFlowDays={StaleFlowDays} InactiveUserDays={InactiveUserDays}",
-            ps, options.IncludeInactiveUsers, options.StaleFlowThresholdDays, options.InactiveUserThresholdDays);
+            "Audit started. PageSize={PageSize} IncludeInactive={IncludeInactive} StaleFlowDays={StaleFlowDays} InactiveUserDays={InactiveUserDays} " +
+            "RunExtension={RunExtension} RunGroups={RunGroups} RunQueues={RunQueues} RunFlows={RunFlows} RunInactiveUsers={RunInactiveUsers} RunDids={RunDids} RunAuditLogs={RunAuditLogs}",
+            ps, options.IncludeInactiveUsers, options.StaleFlowThresholdDays, options.InactiveUserThresholdDays,
+            options.RunExtensionAudit, options.RunGroupAudit, options.RunQueueAudit, options.RunFlowAudit,
+            options.RunInactiveUserAudit, options.RunDidAudit, options.RunAuditLogs);
 
-        // ── Phase 1 (0-10%): Users ────────────────────────────────────────
-        Report(progress, 0, "Fetching users...");
-        var userDtos = await _paginator.FetchAllAsync(
-            pn => _usersClient.GetUsersPageAsync(pn, ps, options.IncludeInactiveUsers, ct), ct)
-            .ConfigureAwait(false);
-        _logger.LogInformation("Fetched {Count} users", userDtos.Count);
+        var needsUsers = options.RunExtensionAudit || options.RunInactiveUserAudit || options.RunDidAudit;
+        var needsExtensions = options.RunExtensionAudit;
+        var needsGroups = options.RunGroupAudit;
+        var needsQueues = options.RunQueueAudit;
+        var needsFlows = options.RunFlowAudit;
+        var needsDids = options.RunDidAudit;
 
-        // ── Phase 2 (10-20%): Extensions ─────────────────────────────────
-        Report(progress, 10, $"Fetched {userDtos.Count} users. Fetching extensions...");
-        var extDtos = await _paginator.FetchAllAsync(
-            pn => _extensionsClient.GetExtensionsPageAsync(pn, ps, ct), ct)
-            .ConfigureAwait(false);
-        _logger.LogInformation("Fetched {Count} extensions", extDtos.Count);
+        IReadOnlyList<GenesysUserDto> userDtos = [];
+        IReadOnlyList<EdgeExtensionEntityDto> extDtos = [];
+        IReadOnlyList<GroupDto> groupDtos = [];
+        IReadOnlyList<QueueDto> queueDtos = [];
+        IReadOnlyList<FlowDto> flowDtos = [];
+        IReadOnlyList<DidDto> didDtos = [];
+        IReadOnlyList<AuditLogFinding> auditLogFindings = [];
 
-        // ── Phase 3 (20-30%): Groups ──────────────────────────────────────
-        Report(progress, 20, $"Fetched {extDtos.Count} extensions. Fetching groups...");
-        var groupDtos = await _paginator.FetchAllAsync(
-            pn => _groupsClient.GetGroupsPageAsync(pn, ps, ct), ct)
-            .ConfigureAwait(false);
-        _logger.LogInformation("Fetched {Count} groups", groupDtos.Count);
+        if (needsUsers)
+        {
+            Report(progress, 0, "Fetching users...");
+            userDtos = await _paginator.FetchAllAsync(
+                pn => _usersClient.GetUsersPageAsync(pn, ps, options.IncludeInactiveUsers, ct), ct)
+                .ConfigureAwait(false);
+            _logger.LogInformation("Fetched {Count} users", userDtos.Count);
+        }
 
-        // ── Phase 4 (30-40%): Queues ──────────────────────────────────────
-        Report(progress, 30, $"Fetched {groupDtos.Count} groups. Fetching queues...");
-        var queueDtos = await _paginator.FetchAllAsync(
-            pn => _queuesClient.GetQueuesPageAsync(pn, ps, ct), ct)
-            .ConfigureAwait(false);
-        _logger.LogInformation("Fetched {Count} queues", queueDtos.Count);
+        if (needsExtensions)
+        {
+            Report(progress, 10, "Fetching extensions...");
+            extDtos = await _paginator.FetchAllAsync(
+                pn => _extensionsClient.GetExtensionsPageAsync(pn, ps, ct), ct)
+                .ConfigureAwait(false);
+            _logger.LogInformation("Fetched {Count} extensions", extDtos.Count);
+        }
 
-        // ── Phase 5 (40-50%): Flows ───────────────────────────────────────
-        Report(progress, 40, $"Fetched {queueDtos.Count} queues. Fetching Architect flows...");
-        var flowDtos = await _paginator.FetchAllAsync(
-            pn => _flowsClient.GetFlowsPageAsync(pn, ps, ct), ct)
-            .ConfigureAwait(false);
-        _logger.LogInformation("Fetched {Count} flows", flowDtos.Count);
+        if (needsGroups)
+        {
+            Report(progress, 20, "Fetching groups...");
+            groupDtos = await _paginator.FetchAllAsync(
+                pn => _groupsClient.GetGroupsPageAsync(pn, ps, ct), ct)
+                .ConfigureAwait(false);
+            _logger.LogInformation("Fetched {Count} groups", groupDtos.Count);
+        }
 
-        // ── Phase 6 (50-60%): DIDs ────────────────────────────────────────
-        Report(progress, 50, $"Fetched {flowDtos.Count} flows. Fetching DIDs...");
-        var didDtos = await _paginator.FetchAllAsync(
-            pn => _didsClient.GetDidsPageAsync(pn, ps, ct), ct)
-            .ConfigureAwait(false);
-        _logger.LogInformation("Fetched {Count} DIDs", didDtos.Count);
+        if (needsQueues)
+        {
+            Report(progress, 30, "Fetching queues...");
+            queueDtos = await _paginator.FetchAllAsync(
+                pn => _queuesClient.GetQueuesPageAsync(pn, ps, ct), ct)
+                .ConfigureAwait(false);
+            _logger.LogInformation("Fetched {Count} queues", queueDtos.Count);
+        }
 
-        // ── Phase 7 (60-70%): Extension cross-reference ───────────────────
-        Report(progress, 60, "Running extension audit...");
-        var extensionReport = RunExtensionAudit(userDtos, extDtos, options);
+        if (needsFlows)
+        {
+            Report(progress, 40, "Fetching Architect flows...");
+            flowDtos = await _paginator.FetchAllAsync(
+                pn => _flowsClient.GetFlowsPageAsync(pn, ps, ct), ct)
+                .ConfigureAwait(false);
+            _logger.LogInformation("Fetched {Count} flows", flowDtos.Count);
+        }
 
-        // ── Phase 8 (70-80%): Group / Queue / Flow / DID analysis ─────────
-        Report(progress, 70, "Analyzing groups, queues, flows, DIDs...");
-        var groupFindings = AnalyzeGroups(groupDtos);
-        var queueFindings = AnalyzeQueues(queueDtos);
-        var flowFindings = AnalyzeFlows(flowDtos, options.StaleFlowThresholdDays);
-        var didFindings = AnalyzeDids(didDtos, userDtos);
+        if (needsDids)
+        {
+            Report(progress, 50, "Fetching DIDs...");
+            didDtos = await _paginator.FetchAllAsync(
+                pn => _didsClient.GetDidsPageAsync(pn, ps, ct), ct)
+                .ConfigureAwait(false);
+            _logger.LogInformation("Fetched {Count} DIDs", didDtos.Count);
+        }
 
-        // ── Phase 9 (80-90%): User activity ──────────────────────────────
-        Report(progress, 80, "Analyzing user activity...");
-        var inactiveUserFindings = AnalyzeUserActivity(userDtos, options.InactiveUserThresholdDays);
+        if (options.RunAuditLogs)
+        {
+            Report(progress, 55, "Fetching audit logs service mappings...");
+            var serviceMappings = await _auditLogsClient.GetServiceMappingsAsync(ct).ConfigureAwait(false);
+            _logger.LogInformation("Fetched {Count} audit service mappings", serviceMappings.Count);
 
-        // ── Phase 10 (90-100%): Compose result ───────────────────────────
+            var now = DateTimeOffset.UtcNow;
+            var lookbackHours = Math.Max(1, options.AuditLogLookbackHours);
+            var interval = $"{now.AddHours(-lookbackHours):o}/{now:o}";
+
+            var submit = new AuditLogsSubmitRequestDto
+            {
+                Interval = interval,
+                ServiceName = options.AuditLogServiceNames.Count > 0
+                    ? options.AuditLogServiceNames.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+                    : serviceMappings.ToList(),
+                Action = []
+            };
+
+            Report(progress, 58, "Submitting audit logs transaction...");
+            var transactionId = await _auditLogsClient.SubmitAuditQueryAsync(submit, ct).ConfigureAwait(false);
+
+            const int maxPolls = 60;
+            const int pollIntervalSeconds = 2;
+            string state = "RUNNING";
+            for (var i = 1; i <= maxPolls; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var status = await _auditLogsClient.GetAuditQueryStatusAsync(transactionId, ct).ConfigureAwait(false);
+                state = (status.State ?? string.Empty).Trim().ToUpperInvariant();
+
+                if (state == "FULFILLED")
+                    break;
+                if (state is "FAILED" or "CANCELLED")
+                    throw new InvalidOperationException($"Audit transaction ended in state '{state}'.");
+
+                await Task.Delay(TimeSpan.FromSeconds(pollIntervalSeconds), ct).ConfigureAwait(false);
+            }
+
+            if (state != "FULFILLED")
+                throw new TimeoutException($"Audit transaction did not complete within {maxPolls} polls.");
+
+            Report(progress, 59, "Fetching audit logs results...");
+            var records = new List<JsonElement>();
+            string? nextUri = null;
+            do
+            {
+                var page = await _auditLogsClient
+                    .GetAuditQueryResultsPageAsync(transactionId, nextUri, ct)
+                    .ConfigureAwait(false);
+
+                if (page.Results is { Count: > 0 })
+                    records.AddRange(page.Results);
+
+                nextUri = page.NextUri;
+            } while (!string.IsNullOrWhiteSpace(nextUri));
+
+            auditLogFindings = AnalyzeAuditLogs(records);
+            _logger.LogInformation("Fetched {Count} audit log records", auditLogFindings.Count);
+        }
+
+        Report(progress, 60, "Running selected audit paths...");
+        var extensionReport = options.RunExtensionAudit
+            ? RunExtensionAudit(userDtos, extDtos, options)
+            : new AuditEngine.AuditReport();
+        var groupFindings = options.RunGroupAudit
+            ? AnalyzeGroups(groupDtos)
+            : [];
+        var queueFindings = options.RunQueueAudit
+            ? AnalyzeQueues(queueDtos)
+            : [];
+        var flowFindings = options.RunFlowAudit
+            ? AnalyzeFlows(flowDtos, options.StaleFlowThresholdDays)
+            : [];
+        var didFindings = options.RunDidAudit
+            ? AnalyzeDids(didDtos, userDtos)
+            : [];
+        var inactiveUserFindings = options.RunInactiveUserAudit
+            ? AnalyzeUserActivity(userDtos, options.InactiveUserThresholdDays)
+            : [];
+
         Report(progress, 90, "Composing report...");
 
         var totalFindings = extensionReport.DuplicateProfileExtensions.Count
@@ -126,7 +238,7 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
             + extensionReport.InvalidAssignedExtensions.Count
             + groupFindings.Count + queueFindings.Count
             + flowFindings.Count + inactiveUserFindings.Count
-            + didFindings.Count;
+            + didFindings.Count + auditLogFindings.Count;
 
         _logger.LogInformation(
             "Audit complete. TotalFindings={TotalFindings} Groups={Groups} Queues={Queues} Flows={Flows} InactiveUsers={InactiveUsers} DIDs={DIDs}",
@@ -140,6 +252,8 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
         return new AuditReportData
         {
             GeneratedAt = DateTimeOffset.Now,
+            RunStartedAtUtc = runStartedUtc,
+            RunCompletedAtUtc = DateTimeOffset.UtcNow,
             OrgRegion = _region.Region,
             Options = options,
             ExtensionReport = extensionReport,
@@ -147,7 +261,8 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
             QueueFindings = queueFindings,
             FlowFindings = flowFindings,
             InactiveUserFindings = inactiveUserFindings,
-            DidFindings = didFindings
+            DidFindings = didFindings,
+            AuditLogFindings = auditLogFindings
         };
     }
 
@@ -464,6 +579,69 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
         // Keep only digits for comparison
         var digits = new string(raw.Where(char.IsDigit).ToArray());
         return digits.Length > 0 ? digits : null;
+    }
+
+    private static IReadOnlyList<AuditLogFinding> AnalyzeAuditLogs(IReadOnlyList<JsonElement> records)
+    {
+        var findings = new List<AuditLogFinding>(records.Count);
+
+        foreach (var record in records)
+        {
+            if (record.ValueKind != JsonValueKind.Object)
+                continue;
+
+            var map = record.EnumerateObject()
+                .ToDictionary(p => p.Name, p => p.Value, StringComparer.OrdinalIgnoreCase);
+
+            map.TryGetValue("id", out var idValue);
+
+            findings.Add(new AuditLogFinding(
+                AuditId: AsString(idValue),
+                TimestampUtc: ParseTimestamp(map),
+                ServiceName: GetString(map, "serviceName"),
+                Action: GetString(map, "action"),
+                UserName: GetString(map, "userName", "name"),
+                UserEmail: GetString(map, "userEmail", "email"),
+                EntityType: GetString(map, "entityType", "targetType"),
+                EntityName: GetString(map, "entityName", "targetName")));
+        }
+
+        return findings
+            .OrderByDescending(f => f.TimestampUtc ?? DateTimeOffset.MinValue)
+            .ToList();
+
+        static string? GetString(Dictionary<string, JsonElement> map, params string[] keys)
+        {
+            foreach (var key in keys)
+            {
+                if (map.TryGetValue(key, out var value))
+                {
+                    var text = AsString(value);
+                    if (!string.IsNullOrWhiteSpace(text))
+                        return text;
+                }
+            }
+
+            return null;
+        }
+
+        static DateTimeOffset? ParseTimestamp(Dictionary<string, JsonElement> map)
+        {
+            var raw = GetString(map, "dateIssued", "timestamp", "eventTime", "dateCreated");
+            if (string.IsNullOrWhiteSpace(raw))
+                return null;
+            return DateTimeOffset.TryParse(raw, out var ts) ? ts : null;
+        }
+
+        static string? AsString(JsonElement element)
+            => element.ValueKind switch
+            {
+                JsonValueKind.String => element.GetString(),
+                JsonValueKind.Number => element.ToString(),
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                _ => null
+            };
     }
 
     private static void Report(IProgress<AuditProgress> progress, int percent, string message, string? status = null)

@@ -33,6 +33,7 @@ public static class Bootstrapper
         _host = Host.CreateDefaultBuilder()
             .ConfigureAppConfiguration(cfg =>
             {
+                cfg.SetBasePath(AppContext.BaseDirectory);
                 cfg.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
             })
             .ConfigureLogging(logging =>
@@ -92,6 +93,11 @@ public static class Bootstrapper
                     .AddHttpMessageHandler<HttpLoggingHandler>()
                     .AddHttpMessageHandler<RateLimitHandler>();
 
+                services.AddHttpClient<IGenesysAuditLogsClient, GenesysAuditLogsClient>()
+                    .AddHttpMessageHandler<OAuthBearerHandler>()
+                    .AddHttpMessageHandler<HttpLoggingHandler>()
+                    .AddHttpMessageHandler<RateLimitHandler>();
+
                 services.AddSingleton<IPaginator, Paginator>();
 
                 // Orchestrator + reporting
@@ -113,19 +119,15 @@ public static class Bootstrapper
                     return window;
                 });
 
-                // Seed navigation items
-                services.AddSingleton(sp =>
-                {
-                    var nav = sp.GetRequiredService<INavigationService>();
-                    nav.Register(
-                        key: "RunAudit",
-                        displayName: "Run Audit",
-                        factory: () => sp.GetRequiredService<RunAuditViewModel>());
-                    nav.Navigate("RunAudit");
-                    return nav;
-                });
             })
             .Build();
+
+        var navigation = _host.Services.GetRequiredService<INavigationService>();
+        navigation.Register(
+            key: "RunAudit",
+            displayName: "Run Audit",
+            factory: () => _host.Services.GetRequiredService<RunAuditViewModel>());
+        navigation.Navigate("RunAudit");
     }
 
     public static Task StartAsync()

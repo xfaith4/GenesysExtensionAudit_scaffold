@@ -49,6 +49,16 @@ public sealed record DidFinding(
     string? OwnerName,
     string Issue);
 
+public sealed record AuditLogFinding(
+    string? AuditId,
+    DateTimeOffset? TimestampUtc,
+    string? ServiceName,
+    string? Action,
+    string? UserName,
+    string? UserEmail,
+    string? EntityType,
+    string? EntityName);
+
 // ─── Combined report ─────────────────────────────────────────────────────────
 
 /// <summary>
@@ -57,6 +67,8 @@ public sealed record DidFinding(
 public sealed class AuditReportData
 {
     public DateTimeOffset GeneratedAt { get; init; } = DateTimeOffset.Now;
+    public DateTimeOffset RunStartedAtUtc { get; init; }
+    public DateTimeOffset RunCompletedAtUtc { get; init; }
     public string OrgRegion { get; init; } = string.Empty;
     public AuditRunOptions Options { get; init; } = new();
 
@@ -69,4 +81,5 @@ public sealed class AuditReportData
     public IReadOnlyList<FlowFinding> FlowFindings { get; init; } = [];
     public IReadOnlyList<InactiveUserFinding> InactiveUserFindings { get; init; } = [];
     public IReadOnlyList<DidFinding> DidFindings { get; init; } = [];
+    public IReadOnlyList<AuditLogFinding> AuditLogFindings { get; init; } = [];
 }

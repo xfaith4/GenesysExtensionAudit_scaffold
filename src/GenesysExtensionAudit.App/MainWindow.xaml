@@ -30,8 +30,10 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
-                    <!-- placeholders for Help/About later -->
-                    <Button Content="Help" Margin="0,0,0,0" Padding="10,4" IsEnabled="False"/>
+                    <Button Content="Help"
+                            Margin="0,0,0,0"
+                            Padding="10,4"
+                            Command="{Binding HelpCommand}" />
                 </StackPanel>
             </Grid>
         </Border>

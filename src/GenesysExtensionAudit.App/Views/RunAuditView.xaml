@@ -51,6 +51,65 @@
                 </Grid>
             </GroupBox>
 
+            <!-- ─── Audit Paths ─── -->
+            <GroupBox Header="Audit Paths" Padding="12" Margin="0,0,0,16">
+                <StackPanel>
+                    <CheckBox Content="Select All"
+                              IsChecked="{Binding SelectAllAudits}"
+                              FontWeight="SemiBold"
+                              Margin="0,0,0,8" />
+
+                    <WrapPanel>
+                        <CheckBox Content="Extensions"
+                                  IsChecked="{Binding RunExtensionAudit}"
+                                  Margin="0,0,18,8" />
+                        <CheckBox Content="Groups"
+                                  IsChecked="{Binding RunGroupAudit}"
+                                  Margin="0,0,18,8" />
+                        <CheckBox Content="Queues"
+                                  IsChecked="{Binding RunQueueAudit}"
+                                  Margin="0,0,18,8" />
+                        <CheckBox Content="Flows"
+                                  IsChecked="{Binding RunFlowAudit}"
+                                  Margin="0,0,18,8" />
+                        <CheckBox Content="Inactive Users"
+                                  IsChecked="{Binding RunInactiveUserAudit}"
+                                  Margin="0,0,18,8" />
+                        <CheckBox Content="DIDs"
+                                  IsChecked="{Binding RunDidAudit}"
+                                  Margin="0,0,18,8" />
+                        <CheckBox Content="Audit Logs"
+                                  IsChecked="{Binding RunAuditLogs}"
+                                  Margin="0,0,18,8" />
+                    </WrapPanel>
+
+                    <TextBlock Text="Choose one or more paths to run in this audit pass."
+                               Foreground="#6B7280"
+                               FontSize="11" />
+
+                    <Border Margin="0,10,0,0" Padding="10" Background="#F9FAFB" BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="4"
+                            Visibility="{Binding RunAuditLogs, Converter={StaticResource BoolToVisibility}}">
+                        <StackPanel>
+                            <TextBlock Text="Audit Logs Catalog Entity" FontWeight="SemiBold" Margin="0,0,0,6" />
+                            <StackPanel Orientation="Horizontal">
+                                <ComboBox Width="320"
+                                          ItemsSource="{Binding AuditLogEntities}"
+                                          SelectedItem="{Binding SelectedAuditLogEntity}"
+                                          IsEnabled="{Binding IsAuditLogSelectionEnabled}" />
+                                <Button Content="Refresh"
+                                        Command="{Binding RefreshAuditCatalogCommand}"
+                                        Margin="8,0,0,0"
+                                        Padding="10,4" />
+                            </StackPanel>
+                            <TextBlock Text="Choose one catalog entity or keep All Catalog Entities."
+                                       Foreground="#6B7280"
+                                       FontSize="11"
+                                       Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </GroupBox>
+
             <!-- ─── Actions ─── -->
             <StackPanel Orientation="Horizontal" Margin="0,0,0,20">
                 <Button Content="▶  Start Audit"
@@ -73,7 +132,7 @@
                       Visibility="{Binding IsRunning, Converter={StaticResource BoolToVisibility}}">
                 <StackPanel>
                     <ProgressBar Minimum="0" Maximum="100"
-                                 Value="{Binding ProgressPercent}"
+                                 Value="{Binding ProgressPercent, Mode=OneWay}"
                                  Height="16"
                                  Margin="0,0,0,8" />
                     <TextBlock Text="{Binding ProgressPercent, StringFormat={}{0}%}"

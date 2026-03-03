@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -7,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using GenesysExtensionAudit.Application;
 using GenesysExtensionAudit.Infrastructure.Application;
+using GenesysExtensionAudit.Infrastructure.Genesys.Clients;
 using GenesysExtensionAudit.Infrastructure.Reporting;
 using Microsoft.Win32;
 
@@ -20,13 +22,27 @@ namespace GenesysExtensionAudit.ViewModels;
 /// </summary>
 public sealed class RunAuditViewModel : INotifyPropertyChanged
 {
+    private const string AllCatalogEntitiesOption = "(All Catalog Entities)";
+
     private readonly IAuditOrchestrator _orchestrator;
     private readonly IExcelReportService _excelService;
+    private readonly IGenesysAuditLogsClient _auditLogsClient;
+    private readonly ObservableCollection<string> _auditLogEntities = [];
 
     private int _pageSize = 100;
     private bool _includeInactive;
     private int _staleFlowDays = 90;
     private int _inactiveUserDays = 90;
+    private bool _runExtensionAudit = true;
+    private bool _runGroupAudit = true;
+    private bool _runQueueAudit = true;
+    private bool _runFlowAudit = true;
+    private bool _runInactiveUserAudit = true;
+    private bool _runDidAudit = true;
+    private bool _runAuditLogs;
+    private bool _isLoadingAuditLogEntities;
+    private bool _auditLogEntitiesLoaded;
+    private string _selectedAuditLogEntity = AllCatalogEntitiesOption;
     private bool _isRunning;
     private int _progressPercent;
     private string _progressMessage = string.Empty;
@@ -35,13 +51,20 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
     private string? _lastExportPath;
     private CancellationTokenSource? _cts;
 
-    public RunAuditViewModel(IAuditOrchestrator orchestrator, IExcelReportService excelService)
+    public RunAuditViewModel(
+        IAuditOrchestrator orchestrator,
+        IExcelReportService excelService,
+        IGenesysAuditLogsClient auditLogsClient)
     {
         _orchestrator = orchestrator ?? throw new ArgumentNullException(nameof(orchestrator));
         _excelService = excelService ?? throw new ArgumentNullException(nameof(excelService));
+        _auditLogsClient = auditLogsClient ?? throw new ArgumentNullException(nameof(auditLogsClient));
 
         StartCommand = new RelayCommand(StartAsync, () => !IsRunning);
         CancelCommand = new RelayCommand(Cancel, () => IsRunning);
+        RefreshAuditCatalogCommand = new RelayCommand(RefreshAuditCatalog, () => !IsRunning && !IsLoadingAuditLogEntities);
+
+        _auditLogEntities.Add(AllCatalogEntitiesOption);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -78,6 +101,118 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
         set => SetField(ref _inactiveUserDays, Math.Max(1, value));
     }
 
+    public bool RunExtensionAudit
+    {
+        get => _runExtensionAudit;
+        set
+        {
+            if (SetField(ref _runExtensionAudit, value))
+                OnAuditSelectionChanged();
+        }
+    }
+
+    public bool RunGroupAudit
+    {
+        get => _runGroupAudit;
+        set
+        {
+            if (SetField(ref _runGroupAudit, value))
+                OnAuditSelectionChanged();
+        }
+    }
+
+    public bool RunQueueAudit
+    {
+        get => _runQueueAudit;
+        set
+        {
+            if (SetField(ref _runQueueAudit, value))
+                OnAuditSelectionChanged();
+        }
+    }
+
+    public bool RunFlowAudit
+    {
+        get => _runFlowAudit;
+        set
+        {
+            if (SetField(ref _runFlowAudit, value))
+                OnAuditSelectionChanged();
+        }
+    }
+
+    public bool RunInactiveUserAudit
+    {
+        get => _runInactiveUserAudit;
+        set
+        {
+            if (SetField(ref _runInactiveUserAudit, value))
+                OnAuditSelectionChanged();
+        }
+    }
+
+    public bool RunDidAudit
+    {
+        get => _runDidAudit;
+        set
+        {
+            if (SetField(ref _runDidAudit, value))
+                OnAuditSelectionChanged();
+        }
+    }
+
+    public bool RunAuditLogs
+    {
+        get => _runAuditLogs;
+        set
+        {
+            if (SetField(ref _runAuditLogs, value))
+            {
+                if (value && !_auditLogEntitiesLoaded)
+                    RefreshAuditCatalog();
+                OnAuditSelectionChanged();
+            }
+        }
+    }
+
+    public ObservableCollection<string> AuditLogEntities => _auditLogEntities;
+
+    public string SelectedAuditLogEntity
+    {
+        get => _selectedAuditLogEntity;
+        set => SetField(ref _selectedAuditLogEntity, string.IsNullOrWhiteSpace(value) ? AllCatalogEntitiesOption : value);
+    }
+
+    public bool IsLoadingAuditLogEntities
+    {
+        get => _isLoadingAuditLogEntities;
+        private set
+        {
+            if (SetField(ref _isLoadingAuditLogEntities, value))
+                RaiseCommandCanExecuteChanged();
+        }
+    }
+
+    public bool IsAuditLogSelectionEnabled => RunAuditLogs && !IsLoadingAuditLogEntities;
+
+    public bool SelectAllAudits
+    {
+        get => RunExtensionAudit && RunGroupAudit && RunQueueAudit && RunFlowAudit && RunInactiveUserAudit && RunDidAudit && RunAuditLogs;
+        set
+        {
+            RunExtensionAudit = value;
+            RunGroupAudit = value;
+            RunQueueAudit = value;
+            RunFlowAudit = value;
+            RunInactiveUserAudit = value;
+            RunDidAudit = value;
+            RunAuditLogs = value;
+        }
+    }
+
+    public bool HasAnyAuditSelected =>
+        RunExtensionAudit || RunGroupAudit || RunQueueAudit || RunFlowAudit || RunInactiveUserAudit || RunDidAudit || RunAuditLogs;
+
     public string? LastExportPath
     {
         get => _lastExportPath;
@@ -100,7 +235,7 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
         }
     }
 
-    public bool CanStart => !IsRunning;
+    public bool CanStart => !IsRunning && HasAnyAuditSelected;
     public bool CanCancel => IsRunning;
 
     public int ProgressPercent
@@ -135,6 +270,7 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
 
     public ICommand StartCommand { get; }
     public ICommand CancelCommand { get; }
+    public ICommand RefreshAuditCatalogCommand { get; }
 
     private async void StartAsync()
     {
@@ -143,6 +279,13 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
         ErrorMessage = null;
         ProgressPercent = 0;
         ProgressMessage = string.Empty;
+
+        if (!HasAnyAuditSelected)
+        {
+            ErrorMessage = "Select at least one audit path.";
+            StatusMessage = "No audit paths selected.";
+            return;
+        }
 
         IsRunning = true;
         StatusMessage = "Starting audit...";
@@ -177,7 +320,16 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
                 PageSize = PageSize,
                 IncludeInactiveUsers = IncludeInactive,
                 StaleFlowThresholdDays = StaleFlowDays,
-                InactiveUserThresholdDays = InactiveUserDays
+                InactiveUserThresholdDays = InactiveUserDays,
+                RunExtensionAudit = RunExtensionAudit,
+                RunGroupAudit = RunGroupAudit,
+                RunQueueAudit = RunQueueAudit,
+                RunFlowAudit = RunFlowAudit,
+                RunInactiveUserAudit = RunInactiveUserAudit,
+                RunDidAudit = RunDidAudit,
+                RunAuditLogs = RunAuditLogs,
+                AuditLogLookbackHours = 1,
+                AuditLogServiceNames = GetSelectedAuditLogServiceNames()
             }, progress, ct).ConfigureAwait(true);
 
             ProgressMessage = "Generating Excel report...";
@@ -242,6 +394,65 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
     {
         if (StartCommand is RelayCommand s) s.RaiseCanExecuteChanged();
         if (CancelCommand is RelayCommand c) c.RaiseCanExecuteChanged();
+    }
+
+    private void OnAuditSelectionChanged()
+    {
+        OnPropertyChanged(nameof(SelectAllAudits));
+        OnPropertyChanged(nameof(HasAnyAuditSelected));
+        OnPropertyChanged(nameof(CanStart));
+        OnPropertyChanged(nameof(IsAuditLogSelectionEnabled));
+        RaiseCommandCanExecuteChanged();
+    }
+
+    private IReadOnlyList<string> GetSelectedAuditLogServiceNames()
+    {
+        if (!RunAuditLogs)
+            return [];
+
+        if (string.IsNullOrWhiteSpace(SelectedAuditLogEntity) ||
+            string.Equals(SelectedAuditLogEntity, AllCatalogEntitiesOption, StringComparison.Ordinal))
+        {
+            return [];
+        }
+
+        return [SelectedAuditLogEntity];
+    }
+
+    private async void RefreshAuditCatalog()
+    {
+        if (IsLoadingAuditLogEntities)
+            return;
+
+        IsLoadingAuditLogEntities = true;
+
+        try
+        {
+            var entities = await _auditLogsClient.GetServiceMappingsAsync(CancellationToken.None).ConfigureAwait(true);
+            var ordered = entities
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            _auditLogEntities.Clear();
+            _auditLogEntities.Add(AllCatalogEntitiesOption);
+            foreach (var entity in ordered)
+                _auditLogEntities.Add(entity);
+
+            SelectedAuditLogEntity = AllCatalogEntitiesOption;
+            _auditLogEntitiesLoaded = true;
+            StatusMessage = $"Loaded {_auditLogEntities.Count - 1} audit-log catalog entities.";
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to load audit-log catalog entities: {ex.Message}";
+            StatusMessage = "Failed to load audit-log catalog entities.";
+        }
+        finally
+        {
+            IsLoadingAuditLogEntities = false;
+        }
     }
 
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
