@@ -28,6 +28,7 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
     private readonly IExcelReportService _excelService;
     private readonly IGenesysAuditLogsClient _auditLogsClient;
     private readonly ObservableCollection<string> _auditLogEntities = [];
+    private readonly ObservableCollection<RunSummaryRow> _lastRunSummary = [];
 
     private int _pageSize = 100;
     private bool _includeInactive;
@@ -49,6 +50,7 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
     private string _statusMessage = "Ready.";
     private string? _errorMessage;
     private string? _lastExportPath;
+    private AuditReportData? _lastReport;
     private CancellationTokenSource? _cts;
 
     public RunAuditViewModel(
@@ -63,6 +65,7 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
         StartCommand = new RelayCommand(StartAsync, () => !IsRunning);
         CancelCommand = new RelayCommand(Cancel, () => IsRunning);
         RefreshAuditCatalogCommand = new RelayCommand(RefreshAuditCatalog, () => !IsRunning && !IsLoadingAuditLogEntities);
+        ExportCommand = new RelayCommand(ExportLastReport, () => !IsRunning && _lastReport is not null);
 
         _auditLogEntities.Add(AllCatalogEntitiesOption);
     }
@@ -221,6 +224,9 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
 
     public bool HasExport => !string.IsNullOrWhiteSpace(LastExportPath);
 
+    public bool HasReport => _lastReport is not null;
+    public ObservableCollection<RunSummaryRow> LastRunSummary => _lastRunSummary;
+
     public bool IsRunning
     {
         get => _isRunning;
@@ -271,6 +277,7 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
     public ICommand StartCommand { get; }
     public ICommand CancelCommand { get; }
     public ICommand RefreshAuditCatalogCommand { get; }
+    public ICommand ExportCommand { get; }
 
     private async void StartAsync()
     {
@@ -332,29 +339,13 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
                 AuditLogServiceNames = GetSelectedAuditLogServiceNames()
             }, progress, ct).ConfigureAwait(true);
 
+            _lastReport = report;
+            BuildLastRunSummary(report);
+            OnPropertyChanged(nameof(HasReport));
+            RaiseCommandCanExecuteChanged();
+
             ProgressMessage = "Generating Excel report...";
-            var xlsx = await _excelService.GenerateAsync(report, ct).ConfigureAwait(true);
-
-            // Prompt user for save location
-            var dlg = new SaveFileDialog
-            {
-                Title = "Save Audit Report",
-                Filter = "Excel Workbook (*.xlsx)|*.xlsx",
-                FileName = $"GenesysAudit_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx",
-                DefaultExt = ".xlsx"
-            };
-
-            if (dlg.ShowDialog() == true)
-            {
-                await File.WriteAllBytesAsync(dlg.FileName, xlsx, ct).ConfigureAwait(true);
-                LastExportPath = dlg.FileName;
-                OnPropertyChanged(nameof(HasExport));
-                StatusMessage = $"Saved: {Path.GetFileName(dlg.FileName)}";
-            }
-            else
-            {
-                StatusMessage = "Audit complete — export skipped.";
-            }
+            await SaveReportToFileAsync(report, ct).ConfigureAwait(true);
 
             ProgressPercent = 100;
             ProgressMessage = "Completed.";
@@ -394,6 +385,7 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
     {
         if (StartCommand is RelayCommand s) s.RaiseCanExecuteChanged();
         if (CancelCommand is RelayCommand c) c.RaiseCanExecuteChanged();
+        if (ExportCommand is RelayCommand e) e.RaiseCanExecuteChanged();
     }
 
     private void OnAuditSelectionChanged()
@@ -455,6 +447,78 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
         }
     }
 
+    private async void ExportLastReport()
+    {
+        if (_lastReport is null || IsRunning)
+            return;
+
+        try
+        {
+            await SaveReportToFileAsync(_lastReport, CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Export failed: {ex.Message}";
+            StatusMessage = "Export failed.";
+        }
+    }
+
+    private async Task SaveReportToFileAsync(AuditReportData report, CancellationToken ct)
+    {
+        var xlsx = await _excelService.GenerateAsync(report, ct).ConfigureAwait(true);
+
+        var dlg = new SaveFileDialog
+        {
+            Title = "Save Audit Report",
+            Filter = "Excel Workbook (*.xlsx)|*.xlsx",
+            FileName = $"GenesysAudit_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx",
+            DefaultExt = ".xlsx"
+        };
+
+        if (dlg.ShowDialog() == true)
+        {
+            await File.WriteAllBytesAsync(dlg.FileName, xlsx, ct).ConfigureAwait(true);
+            LastExportPath = dlg.FileName;
+            OnPropertyChanged(nameof(HasExport));
+            StatusMessage = $"Saved: {Path.GetFileName(dlg.FileName)}";
+        }
+        else
+        {
+            StatusMessage = "Audit complete — export skipped.";
+        }
+    }
+
+    private void BuildLastRunSummary(AuditReportData report)
+    {
+        _lastRunSummary.Clear();
+
+        var ext = report.ExtensionReport;
+        var runFlags = new (string Name, bool Ran, int Count)[]
+        {
+            ("Extensions", report.Options.RunExtensionAudit,
+                ext.DuplicateProfileExtensions.Count
+                + ext.ProfileExtensionsNotAssigned.Count
+                + ext.DuplicateAssignedExtensions.Count
+                + ext.AssignedExtensionsMissingFromProfiles.Count
+                + ext.InvalidProfileExtensions.Count
+                + ext.InvalidAssignedExtensions.Count),
+            ("Groups", report.Options.RunGroupAudit, report.GroupFindings.Count),
+            ("Queues", report.Options.RunQueueAudit, report.QueueFindings.Count),
+            ("Flows", report.Options.RunFlowAudit, report.FlowFindings.Count),
+            ("Inactive Users", report.Options.RunInactiveUserAudit, report.InactiveUserFindings.Count),
+            ("DIDs", report.Options.RunDidAudit, report.DidFindings.Count),
+            ("Audit Logs", report.Options.RunAuditLogs, report.AuditLogFindings.Count)
+        };
+
+        foreach (var item in runFlags)
+        {
+            if (!item.Ran)
+                continue;
+
+            _lastRunSummary.Add(new RunSummaryRow(item.Name, item.Count));
+        }
+    }
+
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
         if (Equals(field, value)) return false;
@@ -466,6 +530,8 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }
+
+public sealed record RunSummaryRow(string AuditPath, int Items);
 
 /// <summary>Simple synchronous command with CanExecute support.</summary>
 public sealed class RelayCommand : ICommand

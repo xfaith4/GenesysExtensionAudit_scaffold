@@ -124,6 +124,12 @@
                 <Button Content="⏹  Cancel"
                         Command="{Binding CancelCommand}"
                         IsEnabled="{Binding CanCancel}"
+                        Padding="16,8"
+                        Margin="0,0,10,0" />
+
+                <Button Content="Export Last Report..."
+                        Command="{Binding ExportCommand}"
+                        IsEnabled="{Binding HasReport}"
                         Padding="16,8" />
             </StackPanel>
 
@@ -153,6 +159,23 @@
                     <TextBlock Text="{Binding StatusMessage}" Foreground="#374151" />
                 </StackPanel>
             </Border>
+
+            <GroupBox Header="Last Run Summary"
+                      Padding="12"
+                      Margin="0,0,0,12"
+                      Visibility="{Binding HasReport, Converter={StaticResource BoolToVisibility}}">
+                <DataGrid ItemsSource="{Binding LastRunSummary}"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          IsReadOnly="True"
+                          HeadersVisibility="Column"
+                          RowHeaderWidth="0">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Audit Path" Binding="{Binding AuditPath}" Width="2*" />
+                        <DataGridTextColumn Header="Items" Binding="{Binding Items}" Width="*" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </GroupBox>
 
             <!-- ─── Error ─── -->
             <Border Background="#FEF2F2"

@@ -11,6 +11,9 @@
         <DataTemplate DataType="{x:Type vm:RunAuditViewModel}">
             <views:RunAuditView />
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ScheduleAuditViewModel}">
+            <views:ScheduleAuditView />
+        </DataTemplate>
         <!-- Future mappings:
         <DataTemplate DataType="{x:Type vm:ResultsViewModel}">
             <views:ResultsView />

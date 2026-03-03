@@ -77,7 +77,8 @@ public abstract class GenesysCloudApiClient
                         statusCode: response.StatusCode,
                         reasonPhrase: response.ReasonPhrase,
                         correlationId: TryGetCorrelationId(response),
-                        responseBody: body);
+                        responseBody: body,
+                        retryAfter: TryGetRetryAfter(response));
                 }
 
                 await using var stream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
@@ -174,8 +175,14 @@ public abstract class GenesysCloudApiClient
 
         if (ex.StatusCode == (HttpStatusCode)429)
         {
-            if (int.TryParse(ex.ResponseBody?.Trim(), out var seconds) && seconds > 0)
+            if (ex.RetryAfter is { } headerRetryAfter && headerRetryAfter > TimeSpan.Zero)
+            {
+                retryAfter = headerRetryAfter;
+            }
+            else if (int.TryParse(ex.ResponseBody?.Trim(), out var seconds) && seconds > 0)
+            {
                 retryAfter = TimeSpan.FromSeconds(seconds);
+            }
         }
 
         return ComputeBackoffDelay(attempt, retryAfter);
@@ -241,6 +248,25 @@ public abstract class GenesysCloudApiClient
         return null;
     }
 
+    private static TimeSpan? TryGetRetryAfter(HttpResponseMessage response)
+    {
+        var retry = response.Headers.RetryAfter;
+        if (retry is null)
+            return null;
+
+        if (retry.Delta is { } delta && delta > TimeSpan.Zero)
+            return delta;
+
+        if (retry.Date is { } at)
+        {
+            var wait = at - DateTimeOffset.UtcNow;
+            if (wait > TimeSpan.Zero)
+                return wait;
+        }
+
+        return null;
+    }
+
     private static async Task<string?> SafeReadBodyAsync(HttpResponseMessage response, CancellationToken ct)
     {
         try
@@ -264,25 +290,36 @@ public sealed class GenesysApiException : Exception
     public string? ReasonPhrase { get; }
     public string? CorrelationId { get; }
     public string? ResponseBody { get; }
+    public TimeSpan? RetryAfter { get; }
 
     public GenesysApiException(
         HttpStatusCode statusCode,
         string? reasonPhrase,
         string? correlationId,
-        string? responseBody)
-        : base(BuildMessage(statusCode, reasonPhrase, correlationId, responseBody))
+        string? responseBody,
+        TimeSpan? retryAfter = null)
+        : base(BuildMessage(statusCode, reasonPhrase, correlationId, responseBody, retryAfter))
     {
         StatusCode = statusCode;
         ReasonPhrase = reasonPhrase;
         CorrelationId = correlationId;
         ResponseBody = responseBody;
+        RetryAfter = retryAfter;
     }
 
-    private static string BuildMessage(HttpStatusCode statusCode, string? reasonPhrase, string? correlationId, string? responseBody)
+    private static string BuildMessage(
+        HttpStatusCode statusCode,
+        string? reasonPhrase,
+        string? correlationId,
+        string? responseBody,
+        TimeSpan? retryAfter)
     {
         var sb = new StringBuilder();
         sb.Append("Genesys Cloud API request failed: ");
         sb.Append((int)statusCode).Append(' ').Append(reasonPhrase ?? statusCode.ToString());
+
+        if (retryAfter is { } ra && ra > TimeSpan.Zero)
+            sb.Append(" RetryAfter=").Append((int)Math.Ceiling(ra.TotalSeconds)).Append('s');
 
         if (!string.IsNullOrWhiteSpace(correlationId))
             sb.Append(" CorrelationId=").Append(correlationId);

@@ -6,12 +6,13 @@ using GenesysExtensionAudit.Infrastructure.Domain.Services;
 using GenesysExtensionAudit.Infrastructure.Genesys.Clients;
 using GenesysExtensionAudit.Infrastructure.Genesys.Pagination;
 using GenesysExtensionAudit.Infrastructure.Http;
+using GenesysExtensionAudit.Infrastructure.Logging;
 using GenesysExtensionAudit.Infrastructure.Reporting;
+using GenesysExtensionAudit.Scheduling;
 using GenesysExtensionAudit.ViewModels;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 namespace GenesysExtensionAudit;
 
@@ -30,22 +31,18 @@ public static class Bootstrapper
     {
         if (_host is not null) return;
 
-        _host = Host.CreateDefaultBuilder()
+        var hostBuilder = Host.CreateDefaultBuilder()
             .ConfigureAppConfiguration(cfg =>
             {
                 cfg.SetBasePath(AppContext.BaseDirectory);
                 cfg.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
-            })
-            .ConfigureLogging(logging =>
-            {
-                logging.ClearProviders();
-                logging.AddConsole();
             })
             .ConfigureServices((ctx, services) =>
             {
                 // Options
                 services.Configure<GenesysRegionOptions>(ctx.Configuration.GetSection("Genesys"));
                 services.Configure<GenesysOAuthOptions>(ctx.Configuration.GetSection("GenesysOAuth"));
+                services.Configure<ScheduledAuditOptions>(ctx.Configuration.GetSection("Scheduling"));
 
                 // Core domain services
                 services.AddSingleton<IExtensionNormalizer, ExtensionNormalizer>();
@@ -103,6 +100,7 @@ public static class Bootstrapper
                 // Orchestrator + reporting
                 services.AddSingleton<IAuditOrchestrator, AuditOrchestrator>(); // IAuditOrchestrator is in Infrastructure.Application
                 services.AddSingleton<IExcelReportService, ExcelReportService>();
+                services.AddSingleton<IScheduledAuditService, ScheduledAuditService>();
 
                 // Navigation / MVVM shell
                 services.AddSingleton<INavigationService, NavigationService>();
@@ -110,6 +108,7 @@ public static class Bootstrapper
                 // ViewModels
                 services.AddSingleton<MainViewModel>();
                 services.AddTransient<RunAuditViewModel>();
+                services.AddTransient<ScheduleAuditViewModel>();
 
                 // Shell window
                 services.AddSingleton<MainWindow>(sp =>
@@ -119,14 +118,20 @@ public static class Bootstrapper
                     return window;
                 });
 
-            })
-            .Build();
+            });
+
+        Logging.ConfigureSerilog(hostBuilder);
+        _host = hostBuilder.Build();
 
         var navigation = _host.Services.GetRequiredService<INavigationService>();
         navigation.Register(
             key: "RunAudit",
             displayName: "Run Audit",
             factory: () => _host.Services.GetRequiredService<RunAuditViewModel>());
+        navigation.Register(
+            key: "ScheduleAudit",
+            displayName: "Schedule Audits",
+            factory: () => _host.Services.GetRequiredService<ScheduleAuditViewModel>());
         navigation.Navigate("RunAudit");
     }
 

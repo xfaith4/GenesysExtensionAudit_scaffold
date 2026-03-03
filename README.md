@@ -65,38 +65,14 @@ Infrastructure ──► Core
 
 | Component | Status | Notes |
 | --- | --- | --- |
-| `AuditEngine` (cross-reference logic) | ✅ Complete | `Domain/Services/AuditEngine.cs` — all 6 finding types |
-| `ExportService` (CSV export) | ✅ Complete | All 7 CSV files, BOM, proper quoting |
-| `PagingOrchestrator` | ✅ Complete | Bounded concurrency, single-flight, TTL cache, retries |
-| `GenesysCloudApiClient` | ✅ Complete | Retry/backoff, 401 refresh, 429 Retry-After |
-| `GenesysUsersClient` / `GenesysExtensionsClient` | ✅ Complete | Paged fetch with state filter |
-| `Logging.cs` (Serilog + correlation) | ✅ Complete | Rolling file, header redaction |
-| `AuditRunViewModel` | ✅ Complete | Async commands, progress, cancellation |
-| `MainViewModel` / `NavigationService` | ✅ Complete | TabControl shell |
-| `ResultsViews.xaml` | ✅ Complete | Expander/DataGrid hierarchy per finding type |
-| `GenesysExtensionAudit.Core.csproj` | ✅ Created | Domain + Application layer |
-| `GenesysExtensionAudit.Infrastructure.csproj` | ✅ Created | Infrastructure layer |
-| `GenesysExtensionAudit.Infrastructure.Tests.csproj` | ✅ Created | xUnit integration tests |
-| `IAuditRunner` + `AuditRunner` | ✅ Created | Wires fetch → normalize → analyze |
-| `ExtensionNormalization` types | ✅ Created | Status enum + normalization result |
-| `IExtensionNormalizer` / `ExtensionNormalizer` | ✅ Created | Digits-only normalization |
-| `IAuditAnalyzer` / `AuditAnalyzer` | ✅ Created | Delegates to AuditEngine |
-| `IPaginator` / `Paginator` | ✅ Created | Sequential page loop |
-| `GenesysRegionOptions` | ✅ Created | Binds `Genesys:*` config section |
-| `ITokenProvider` / `TokenProvider` | ✅ Created | OAuth client-credentials (stub) |
-| `OAuthBearerHandler` | ✅ Created | Bearer token injection |
-| `HttpLoggingHandler` | ✅ Created | Timing + status logging |
-| `RateLimitHandler` | ✅ Created | Token-bucket rate limiter |
-| `RunAuditView.xaml` | ✅ Created | Inputs, progress bar, results tabs |
-| `Directory.Build.props` | ✅ Created | Shared C# language settings |
-| `.gitignore` | ✅ Created | Standard .NET ignores |
-| **OAuth `TokenProvider` (full impl)** | ⚠️ Stub | Needs real `client_credentials` HTTP call |
-| **DTO → Domain mapping in AuditRunner** | ⚠️ Stub | `UserDto → UserProfileExtensionRecord` mapping needed |
-| **`AuditAnalyzer` (full impl)** | ⚠️ Stub | Currently delegates to `AuditEngine`; wire mapping |
-| **Results display in RunAuditView** | ⚠️ Partial | View exists; ViewModel needs `AuditReport` binding |
-| **Export button / folder picker** | ⚠️ Missing | `ExportService` ready; UI trigger not wired |
-| **Serilog wired in Bootstrapper** | ⚠️ Missing | `Logging.ConfigureSerilog()` not called in `App.xaml.cs` |
-| **`Retry-After` header parsing in client** | ⚠️ Partial | Parses body int; true header parsing needs exception enrichment |
+| OAuth `TokenProvider` (`client_credentials`) | ✅ Complete | Real token POST to `https://login.{Region}/oauth/token`, cached until expiry minus safety window |
+| DTO → domain mapping in `AuditRunner` | ✅ Complete | Maps users/extensions to normalized domain records before analyze |
+| `AuditAnalyzer` implementation | ✅ Complete | Produces duplicate profile, duplicate assigned, and profile-only findings |
+| Results display in `RunAuditView` | ✅ Complete | Last run summary grid is bound and shown after completion |
+| Export button / picker | ✅ Complete | Auto save prompt after run + `Export Last Report...` command |
+| Serilog wiring in app startup | ✅ Complete | `Logging.ConfigureSerilog(hostBuilder)` is called in `Bootstrapper` |
+| 429 `Retry-After` handling | ✅ Complete | Parses real `Retry-After` response header (delta/date) with body fallback |
+| Help command / audit path documentation | ✅ Complete | Help button enabled and lists all currently available audit paths |
 
 ---
 
@@ -108,8 +84,9 @@ Infrastructure ──► Core
 - [Configuration](#configuration)
 - [Build and run](#build-and-run)
 - [Running an audit](#running-an-audit)
+- [Scheduling audits](#scheduling-audits)
 - [Interpreting the reports](#interpreting-the-reports)
-- [Exporting results to CSV](#exporting-results-to-csv)
+- [Exporting results to Excel](#exporting-results-to-excel)
 - [Troubleshooting](#troubleshooting)
 - [Developer guide](#developer-guide)
 - [Notes and limitations](#notes-and-limitations)
@@ -239,6 +216,31 @@ dotnet test
 
 ---
 
+## Scheduling audits
+
+Use the **Schedule Audits** tab to create local Windows Scheduled Tasks that run the audit headlessly.
+
+Supported recurrence:
+
+- One-time
+- Daily
+- Weekly (selected weekdays)
+
+Scheduling flow:
+
+1. Configure recurrence, date/time, credentials, and selected audit paths.
+2. Click **Create Scheduled Task**.
+3. The app writes a schedule profile JSON and registers a task under `\GenesysExtensionAudit\`.
+4. The task runs `GenesysExtensionAudit.Runner.exe --schedule-profile "<profile-path>"`.
+
+Notes:
+
+- The GUI does not need to be open when the task runs.
+- Existing one-off runs from **Run Audit** are unchanged.
+- If runner auto-discovery fails, set `Scheduling:RunnerExecutablePath` in `src/GenesysExtensionAudit.App/appsettings.json`.
+
+---
+
 ## Interpreting the reports
 
 ### Summary
@@ -291,27 +293,24 @@ Quick health check totals:
 
 ---
 
-## Exporting results to CSV
+## Exporting results to Excel
 
-After a completed audit, click **Export** (or call `ExportService.ExportAll(report, options)` in code).
+After an audit completes, the app prompts for a `.xlsx` save location.
 
-Output files (one per section, plus Summary):
+You can also click **Export Last Report...** to re-export the latest completed run without rerunning the audit.
 
-| File | Columns |
-| --- | --- |
-| `{prefix}_Summary.csv` | Key, Value |
-| `{prefix}_DuplicateProfileExtensions.csv` | ExtensionKey, UserName, UserId, State, ExtensionRaw |
-| `{prefix}_ProfileExtensionsNotAssigned.csv` | ExtensionKey, UserName, UserId, State, ExtensionRaw |
-| `{prefix}_DuplicateAssignedExtensions.csv` | ExtensionKey, AssignmentId, ExtensionRaw, TargetType, TargetId |
-| `{prefix}_AssignedExtensionsMissingFromProfiles.csv` | ExtensionKey, AssignmentId, ExtensionRaw, TargetType, TargetId |
-| `{prefix}_InvalidProfileExtensions.csv` | UserName, UserId, State, ExtensionRaw, Status, Notes |
-| `{prefix}_InvalidAssignedExtensions.csv` | AssignmentId, ExtensionRaw, Status, Notes |
+Workbook output includes:
 
-**Excel tips:**
-
-- Files are written with **UTF-8 BOM** for seamless Excel opening.
-- Fields containing commas, quotes, or newlines are RFC-4180 quoted.
-- If columns appear shifted: use Data → From Text/CSV with delimiter = comma.
+- `Summary` (audits performed, item counts, severity, run timing)
+- `Ext_Duplicates_Profile`
+- `Ext_Pool_vs_Profile`
+- `Invalid_Extensions`
+- `Empty_Groups`
+- `Empty_Queues`
+- `Stale_Flows`
+- `Inactive_Users`
+- `DID_Mismatches`
+- `Audit_Logs` (when Audit Logs path is selected)
 
 ---
 
@@ -346,11 +345,11 @@ The client will automatically retry a 401 once after forcing a token refresh.
 - Users with blank Work Phone extension fields never appear in profile-based findings
 - Verify the OAuth client has read access to all users (some orgs have division-scoped permissions)
 
-### CSV opens incorrectly in Excel
+### Export workbook issues
 
-- Use **Data → Get Data → From Text/CSV** (not double-click) if your locale uses semicolons
-- Verify the exporter writes UTF-8 BOM (`IncludeUtf8Bom=true` in `ExportOptions`)
-- Names/fields with embedded commas must be RFC-4180 quoted — open an issue with a sanitized sample if rows appear shifted
+- Confirm you can write to the selected output folder.
+- If export is skipped, click **Export Last Report...** and select a writable path.
+- Very large tenants can create large workbooks; retry with fewer audit paths selected if Excel struggles to open the file.
 
 ### TLS/Proxy/Firewall issues
 
@@ -362,55 +361,12 @@ The client will automatically retry a 401 once after forcing a token refresh.
 
 ## Developer Guide
 
-### Completing the stubs
+### Implementation Notes
 
-The following areas require implementation before the app is fully functional:
-
-#### 1. OAuth `TokenProvider` (client credentials flow)
-
-`src/GenesysExtensionAudit.Infrastructure/Http/TokenProvider.cs` — replace the stub with a real HTTP call:
-
-```
-POST https://login.{Region}/oauth/token
-Content-Type: application/x-www-form-urlencoded
-Authorization: Basic base64(clientId:clientSecret)
-
-grant_type=client_credentials
-```
-
-Cache the token until `expires_in - 60` seconds. Implement `ForceRefreshAsync` to clear cache.
-
-#### 2. DTO → Domain mapping in `AuditRunner`
-
-`src/GenesysExtensionAudit.Infrastructure/Application/AuditRunner.cs` — map fetched DTOs to domain records:
-
-```csharp
-// UserDto → UserProfileExtensionRecord
-// ExtensionDto → AssignedExtensionRecord
-// Then call: _analyzer.Analyze(userRecords, extensionRecords)
-```
-
-The `DtosExtensions.GetWorkPhoneExtension()` helper in `Infrastructure/Genesys/Dtos/` handles the `primaryContactInfo` extraction.
-
-#### 3. Wire `AuditReport` into `RunAuditView` / ViewModel
-
-`AuditRunViewModel` currently only tracks progress. After `RunAsync` completes, it should expose `AuditReport` (or `AuditFindings`) so `RunAuditView.xaml` can render results tabs.
-
-#### 4. Export button in `RunAuditView`
-
-Add a **Export…** button that calls `ExportService.ExportAll(report, new ExportOptions { OutputDirectory = ... })` after the audit completes.
-
-#### 5. Wire Serilog in `Bootstrapper`
-
-Call `Logging.ConfigureSerilog(hostBuilder)` before `.Build()` to enable rolling file logs. Add `Logging.cs` options to `appsettings.json`:
-
-```json
-"Logging": {
-  "MinimumLevel": "Information",
-  "EnableFile": true,
-  "LogDirectory": "logs"
-}
-```
+- App startup uses `Logging.ConfigureSerilog(hostBuilder)` in `Bootstrapper` and supports `Logging:*` options in `appsettings.json`.
+- OAuth uses real `client_credentials` flow in `TokenProvider` with cached token reuse and force refresh on demand.
+- API resiliency in `GenesysCloudApiClient` includes 401 refresh retry and 429 retry honoring `Retry-After` header values.
+- `RunAuditViewModel` now stores the last completed report, binds a summary grid, and supports explicit re-export via **Export Last Report...**.
 
 ### Extension normalization rules
 
@@ -443,7 +399,7 @@ See `QA.md` for the full end-to-end QA test matrix (pagination, rate-limit, canc
 
 - The audit uses the **Work Phone extension field** (`primaryContactInfo` with type=work + mediaType=PHONE) as the profile source of truth. Orgs that store extensions differently (custom fields, division-scoped schemas) may need adapter logic in `DtosExtensions.GetWorkPhoneExtension()`.
 - Genesys tenant configurations vary significantly. Treat findings as audit aids; validate against your telephony provisioning model before bulk changes.
-- The `AssignedExtensionsMissingFromProfiles` report is disabled by default (`ComputeAssignedButMissingFromProfiles = false`) as it generates high volume for orgs with many unassigned extension slots.
+- The `AssignedExtensionsMissingFromProfiles` report is enabled in the current extension audit run. Large tenants may produce high row counts in that section.
 - `ResultsViews.xaml` uses `ItemsControl` + `DataGrid` per finding — for tenants with thousands of findings, enable UI virtualization or add paging in the view.
 
 ---

@@ -15,6 +15,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Serilog;
 using Serilog.Events;
+using System.Text.Json;
 
 return await RunAsync(args);
 
@@ -22,7 +23,9 @@ return await RunAsync(args);
 
 static async Task<int> RunAsync(string[] args)
 {
-    bool dryRun = Array.Exists(args, a => a.Equals("--dry-run", StringComparison.OrdinalIgnoreCase));
+    var parsed = ParseArgs(args);
+    var dryRun = parsed.DryRun;
+    var scheduleProfilePath = parsed.ScheduleProfilePath;
 
     // Bootstrap logger active before host is built (captures startup errors).
     Log.Logger = new LoggerConfiguration()
@@ -52,6 +55,7 @@ static async Task<int> RunAsync(string[] args)
             .UseSerilog()
             .ConfigureAppConfiguration((_, cfg) =>
             {
+                cfg.SetBasePath(AppContext.BaseDirectory);
                 cfg.AddJsonFile("appsettings.json", optional: false, reloadOnChange: false);
             })
             .ConfigureServices((ctx, services) =>
@@ -107,6 +111,11 @@ static async Task<int> RunAsync(string[] args)
                     .AddHttpMessageHandler<HttpLoggingHandler>()
                     .AddHttpMessageHandler<RateLimitHandler>();
 
+                services.AddHttpClient<IGenesysAuditLogsClient, GenesysAuditLogsClient>()
+                    .AddHttpMessageHandler<OAuthBearerHandler>()
+                    .AddHttpMessageHandler<HttpLoggingHandler>()
+                    .AddHttpMessageHandler<RateLimitHandler>();
+
                 services.AddSingleton<IPaginator, Paginator>();
 
                 // ── Audit + reporting ─────────────────────────────────────────
@@ -125,8 +134,8 @@ static async Task<int> RunAsync(string[] args)
         var spOpts = host.Services.GetRequiredService<IOptions<SharePointOptions>>().Value;
 
         logger.LogInformation(
-            "GenesysExtensionAudit Runner starting. Region={Region} DryRun={DryRun}",
-            genesysOpts.Region, dryRun);
+            "GenesysExtensionAudit Runner starting. Region={Region} DryRun={DryRun} ScheduleProfile={ScheduleProfile}",
+            genesysOpts.Region, dryRun, scheduleProfilePath ?? "(none)");
 
         // ── Run audit ─────────────────────────────────────────────────────────
         var progress = new Progress<AuditProgress>(p =>
@@ -135,13 +144,19 @@ static async Task<int> RunAsync(string[] args)
                 logger.LogInformation("[{Percent,3}%] {Message}", p.Percent, p.Message);
         });
 
-        var runOptions = new AuditRunOptions
+        var runOptions = new AuditRunOptions();
+        if (!string.IsNullOrWhiteSpace(scheduleProfilePath))
         {
-            PageSize = genesysOpts.PageSize,
-            IncludeInactiveUsers = auditOpts.IncludeInactiveUsers,
-            StaleFlowThresholdDays = auditOpts.StaleFlowThresholdDays,
-            InactiveUserThresholdDays = auditOpts.InactiveUserThresholdDays
-        };
+            var profile = await LoadScheduledProfileAsync(scheduleProfilePath, cts.Token);
+            runOptions = BuildRunOptionsFromProfile(profile);
+            logger.LogInformation(
+                "Loaded schedule profile {ProfilePath}. ScheduleId={ScheduleId} Name={Name} CreatedBy={CreatedBy}",
+                scheduleProfilePath, profile.ScheduleId, profile.Name, profile.CreatedBy);
+        }
+        else
+        {
+            runOptions = BuildRunOptionsFromSettings(genesysOpts, auditOpts);
+        }
 
         var report = await orchestrator.RunAsync(runOptions, progress, cts.Token);
 
@@ -196,4 +211,99 @@ static async Task<int> RunAsync(string[] args)
         host?.Dispose();
         await Log.CloseAndFlushAsync();
     }
+}
+
+static (bool DryRun, string? ScheduleProfilePath) ParseArgs(string[] args)
+{
+    var dryRun = false;
+    string? scheduleProfilePath = null;
+
+    for (var i = 0; i < args.Length; i++)
+    {
+        var arg = args[i];
+        if (arg.Equals("--dry-run", StringComparison.OrdinalIgnoreCase))
+        {
+            dryRun = true;
+            continue;
+        }
+
+        if (arg.Equals("--schedule-profile", StringComparison.OrdinalIgnoreCase))
+        {
+            if (i + 1 >= args.Length)
+                throw new ArgumentException("--schedule-profile requires a file path argument.");
+
+            scheduleProfilePath = args[++i];
+            continue;
+        }
+    }
+
+    return (dryRun, scheduleProfilePath);
+}
+
+static AuditRunOptions BuildRunOptionsFromSettings(
+    GenesysRegionOptions genesysOpts,
+    AuditOptions auditOpts)
+{
+    return new AuditRunOptions
+    {
+        PageSize = genesysOpts.PageSize,
+        IncludeInactiveUsers = auditOpts.IncludeInactiveUsers,
+        StaleFlowThresholdDays = auditOpts.StaleFlowThresholdDays,
+        InactiveUserThresholdDays = auditOpts.InactiveUserThresholdDays,
+        RunExtensionAudit = auditOpts.RunExtensionAudit,
+        RunGroupAudit = auditOpts.RunGroupAudit,
+        RunQueueAudit = auditOpts.RunQueueAudit,
+        RunFlowAudit = auditOpts.RunFlowAudit,
+        RunInactiveUserAudit = auditOpts.RunInactiveUserAudit,
+        RunDidAudit = auditOpts.RunDidAudit,
+        RunAuditLogs = auditOpts.RunAuditLogs,
+        AuditLogLookbackHours = Math.Max(1, auditOpts.AuditLogLookbackHours),
+        AuditLogServiceNames = auditOpts.AuditLogServiceNames ?? []
+    };
+}
+
+static AuditRunOptions BuildRunOptionsFromProfile(ScheduledAuditProfile profile)
+{
+    if (!profile.HasAnyAuditSelected)
+        throw new InvalidOperationException("Schedule profile has no selected audits.");
+
+    IReadOnlyList<string> serviceNames = string.IsNullOrWhiteSpace(profile.AuditLogServiceName)
+        ? Array.Empty<string>()
+        : [profile.AuditLogServiceName.Trim()];
+
+    return new AuditRunOptions
+    {
+        PageSize = Math.Clamp(profile.PageSize, 1, 500),
+        IncludeInactiveUsers = profile.IncludeInactiveUsers,
+        StaleFlowThresholdDays = Math.Max(1, profile.StaleFlowThresholdDays),
+        InactiveUserThresholdDays = Math.Max(1, profile.InactiveUserThresholdDays),
+        RunExtensionAudit = profile.RunExtensionAudit,
+        RunGroupAudit = profile.RunGroupAudit,
+        RunQueueAudit = profile.RunQueueAudit,
+        RunFlowAudit = profile.RunFlowAudit,
+        RunInactiveUserAudit = profile.RunInactiveUserAudit,
+        RunDidAudit = profile.RunDidAudit,
+        RunAuditLogs = profile.RunAuditLogs,
+        AuditLogLookbackHours = Math.Max(1, profile.AuditLogLookbackHours),
+        AuditLogServiceNames = serviceNames
+    };
+}
+
+static async Task<ScheduledAuditProfile> LoadScheduledProfileAsync(string path, CancellationToken ct)
+{
+    if (string.IsNullOrWhiteSpace(path))
+        throw new InvalidOperationException("Schedule profile path is empty.");
+    if (!File.Exists(path))
+        throw new FileNotFoundException("Schedule profile not found.", path);
+
+    await using var fs = File.OpenRead(path);
+    var profile = await JsonSerializer.DeserializeAsync<ScheduledAuditProfile>(
+        fs,
+        new JsonSerializerOptions(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = true },
+        ct);
+
+    if (profile is null)
+        throw new InvalidOperationException($"Failed to deserialize schedule profile: {path}");
+
+    return profile;
 }
