@@ -52,6 +52,12 @@ public sealed class GenesysUserDto
     public List<GenesysPrimaryContactInfoDto>? PrimaryContactInfo { get; init; }
 
     /// <summary>
+    /// Additional contact list used by some orgs for Work Phone 2/3 style fields.
+    /// </summary>
+    [JsonPropertyName("addresses")]
+    public List<GenesysPrimaryContactInfoDto>? Addresses { get; init; }
+
+    /// <summary>
     /// Date/time of the last OAuth token issued to this user.
     /// Populated when fetching with expand=tokenLastIssuedDate.
     /// May be null for service accounts or users who have never logged in via OAuth.

@@ -552,9 +552,9 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
             .Where(u => u.Id is not null)
             .ToDictionary(u => u.Id!, u => u, StringComparer.OrdinalIgnoreCase);
 
-        // Build set of phone numbers appearing in user profiles (any contact info)
+        // Build set of work-phone numbers from all user profile phone fields (Work, Work2, etc.).
         var userPhoneNumbers = users
-            .SelectMany(u => u.PrimaryContactInfo ?? [])
+            .SelectMany(GetAllWorkPhoneContactInfo)
             .Where(ci => !string.IsNullOrWhiteSpace(ci.Address))
             .Select(ci => NormalizePhoneNumber(ci.Address!))
             .Where(n => n is not null)
@@ -641,6 +641,26 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
         }
 
         return null;
+    }
+
+    private static IEnumerable<GenesysPrimaryContactInfoDto> GetAllWorkPhoneContactInfo(GenesysUserDto user)
+    {
+        static bool IsWorkPhone(GenesysPrimaryContactInfoDto ci)
+            => string.Equals(ci.MediaType, "PHONE", StringComparison.OrdinalIgnoreCase)
+               && !string.IsNullOrWhiteSpace(ci.Type)
+               && ci.Type.StartsWith("work", StringComparison.OrdinalIgnoreCase);
+
+        foreach (var ci in user.PrimaryContactInfo ?? [])
+        {
+            if (IsWorkPhone(ci))
+                yield return ci;
+        }
+
+        foreach (var ci in user.Addresses ?? [])
+        {
+            if (IsWorkPhone(ci))
+                yield return ci;
+        }
     }
 
     private static string? NormalizePhoneNumber(string raw)

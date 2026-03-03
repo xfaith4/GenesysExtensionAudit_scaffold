@@ -34,8 +34,26 @@ public sealed class GenesysAuditLogsClient : GenesysCloudApiClient, IGenesysAudi
 
     public async Task<IReadOnlyList<string>> GetServiceMappingsAsync(CancellationToken ct)
     {
-        var json = await GetJsonAsync<JsonElement>("/api/v2/audits/query/servicemapping", ct).ConfigureAwait(false);
-        return ParseServiceMappings(json);
+        var mappings = ParseServiceMappings(
+            await GetJsonAsync<JsonElement>("/api/v2/audits/query/servicemapping", ct).ConfigureAwait(false));
+
+        if (mappings.Count > 0)
+            return mappings;
+
+        // Fallback for tenants where service mapping shape is sparse but action catalog is available.
+        try
+        {
+            var catalog = await GetJsonAsync<JsonElement>("/api/v2/audits/query/actioncatalog", ct).ConfigureAwait(false);
+            var catalogMappings = ParseServiceMappings(catalog);
+            if (catalogMappings.Count > 0)
+                return catalogMappings;
+        }
+        catch
+        {
+            // Keep behavior non-fatal for the dropdown refresh path.
+        }
+
+        return mappings;
     }
 
     public async Task<string> SubmitAuditQueryAsync(AuditLogsSubmitRequestDto request, CancellationToken ct)
@@ -88,58 +106,93 @@ public sealed class GenesysAuditLogsClient : GenesysCloudApiClient, IGenesysAudi
 
     private static IReadOnlyList<string> ParseServiceMappings(JsonElement json)
     {
-        var values = new List<string>();
-
-        if (json.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var el in json.EnumerateArray())
-                AddMapping(values, el);
-            return values;
-        }
-
-        if (json.ValueKind != JsonValueKind.Object)
-            return values;
-
-        if (json.TryGetProperty("entities", out var entities) && entities.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var el in entities.EnumerateArray())
-                AddMapping(values, el);
-        }
-        else if (json.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var el in results.EnumerateArray())
-                AddMapping(values, el);
-        }
-        else
-        {
-            foreach (var prop in json.EnumerateObject())
-                AddMapping(values, prop.Value);
-        }
-
-        return values
-            .Where(static x => !string.IsNullOrWhiteSpace(x))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var values = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        CollectMappings(values, json, null);
+        var list = values.ToList();
+        list.Sort(StringComparer.OrdinalIgnoreCase);
+        return list;
     }
 
-    private static void AddMapping(List<string> values, JsonElement element)
+    private static void CollectMappings(HashSet<string> values, JsonElement element, string? propertyName)
     {
-        if (element.ValueKind == JsonValueKind.String)
+        switch (element.ValueKind)
         {
-            var value = element.GetString();
-            if (!string.IsNullOrWhiteSpace(value))
-                values.Add(value);
-            return;
+            case JsonValueKind.String:
+            {
+                var value = element.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                    values.Add(value.Trim());
+                return;
+            }
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                    CollectMappings(values, item, null);
+                return;
+            case JsonValueKind.Object:
+                break;
+            default:
+                return;
         }
 
-        if (element.ValueKind != JsonValueKind.Object)
+        if (TryAddFromKnownFields(values, element))
             return;
+
+        foreach (var prop in element.EnumerateObject())
+        {
+            // Some responses use { "<serviceName>": [...] } dictionaries.
+            if (prop.Value.ValueKind is JsonValueKind.Array or JsonValueKind.Object)
+            {
+                if (!string.IsNullOrWhiteSpace(prop.Name) &&
+                    !IsContainerPropertyName(prop.Name))
+                {
+                    values.Add(prop.Name.Trim());
+                }
+
+                CollectMappings(values, prop.Value, prop.Name);
+                continue;
+            }
+
+            CollectMappings(values, prop.Value, prop.Name);
+        }
+
+        if (!string.IsNullOrWhiteSpace(propertyName) && !IsContainerPropertyName(propertyName!))
+            values.Add(propertyName!.Trim());
+    }
+
+    private static bool TryAddFromKnownFields(HashSet<string> values, JsonElement element)
+    {
+        var added = false;
 
         if (element.TryGetProperty("serviceName", out var serviceName) && serviceName.ValueKind == JsonValueKind.String)
         {
             var value = serviceName.GetString();
             if (!string.IsNullOrWhiteSpace(value))
-                values.Add(value);
+            {
+                values.Add(value.Trim());
+                added = true;
+            }
         }
+
+        if (element.TryGetProperty("entityType", out var entityType) && entityType.ValueKind == JsonValueKind.String)
+        {
+            var value = entityType.GetString();
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                values.Add(value.Trim());
+                added = true;
+            }
+        }
+
+        return added;
     }
+
+    private static bool IsContainerPropertyName(string name)
+        => name.Equals("entities", StringComparison.OrdinalIgnoreCase)
+           || name.Equals("results", StringComparison.OrdinalIgnoreCase)
+           || name.Equals("items", StringComparison.OrdinalIgnoreCase)
+           || name.Equals("actions", StringComparison.OrdinalIgnoreCase)
+           || name.Equals("selfUri", StringComparison.OrdinalIgnoreCase)
+           || name.Equals("nextUri", StringComparison.OrdinalIgnoreCase)
+           || name.Equals("previousUri", StringComparison.OrdinalIgnoreCase);
+}
 }
