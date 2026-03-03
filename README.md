@@ -183,6 +183,8 @@ setx Genesys__Region            "mypurecloud.com"
 # From repo root
 dotnet restore
 dotnet build -c Release
+or
+dotnet publish .\src\GenesysExtensionAudit.App\GenesysExtensionAudit.App.csproj -c Release
 dotnet run --project src\GenesysExtensionAudit.App\GenesysExtensionAudit.App.csproj
 ```
 
