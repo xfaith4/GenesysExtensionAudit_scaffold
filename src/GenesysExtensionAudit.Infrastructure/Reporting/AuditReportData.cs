@@ -40,6 +40,14 @@ public sealed record InactiveUserFinding(
     int? DaysSinceLogin,
     string Issue);
 
+public sealed record NoLocationUserFinding(
+    string UserId,
+    string? UserName,
+    string? Email,
+    string? State,
+    int LocationCount,
+    string Issue);
+
 public sealed record DidFinding(
     string DidId,
     string? PhoneNumber,
@@ -101,6 +109,7 @@ public sealed class AuditReportData
     public IReadOnlyList<QueueFinding> QueueFindings { get; init; } = [];
     public IReadOnlyList<FlowFinding> FlowFindings { get; init; } = [];
     public IReadOnlyList<InactiveUserFinding> InactiveUserFindings { get; init; } = [];
+    public IReadOnlyList<NoLocationUserFinding> NoLocationUserFindings { get; init; } = [];
     public IReadOnlyList<DidFinding> DidFindings { get; init; } = [];
     public IReadOnlyList<AuditLogFinding> AuditLogFindings { get; init; } = [];
     public IReadOnlyList<OperationalEventFinding> OperationalEventFindings { get; init; } = [];

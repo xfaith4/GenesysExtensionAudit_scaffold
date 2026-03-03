@@ -3,7 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using GenesysExtensionAudit.Scheduling;
-using GenesysExtensionAudit.Infrastructure.Genesys.Clients;
+using GenesysExtensionAudit.Services;
 
 namespace GenesysExtensionAudit.ViewModels;
 
@@ -12,7 +12,7 @@ public sealed class ScheduleAuditViewModel : INotifyPropertyChanged
     private const string AllCatalogEntitiesOption = "(All Catalog Entities)";
 
     private readonly IScheduledAuditService _scheduledAuditService;
-    private readonly IGenesysAuditLogsClient _auditLogsClient;
+    private readonly IAuditLogCatalogCache _auditLogCatalogCache;
     private readonly ObservableCollection<string> _auditLogEntities = [];
     private readonly ObservableCollection<ScheduledTaskInfo> _scheduledTasks = [];
 
@@ -55,10 +55,10 @@ public sealed class ScheduleAuditViewModel : INotifyPropertyChanged
 
     public ScheduleAuditViewModel(
         IScheduledAuditService scheduledAuditService,
-        IGenesysAuditLogsClient auditLogsClient)
+        IAuditLogCatalogCache auditLogCatalogCache)
     {
         _scheduledAuditService = scheduledAuditService ?? throw new ArgumentNullException(nameof(scheduledAuditService));
-        _auditLogsClient = auditLogsClient ?? throw new ArgumentNullException(nameof(auditLogsClient));
+        _auditLogCatalogCache = auditLogCatalogCache ?? throw new ArgumentNullException(nameof(auditLogCatalogCache));
 
         _auditLogEntities.Add(AllCatalogEntitiesOption);
 
@@ -156,7 +156,7 @@ public sealed class ScheduleAuditViewModel : INotifyPropertyChanged
             if (SetField(ref _runAuditLogs, value))
             {
                 if (value && AuditLogEntities.Count <= 1)
-                    RefreshAuditCatalog();
+                    LoadAuditCatalog(forceRefresh: false);
             }
         }
     }
@@ -338,7 +338,10 @@ public sealed class ScheduleAuditViewModel : INotifyPropertyChanged
         }
     }
 
-    private async void RefreshAuditCatalog()
+    private void RefreshAuditCatalog()
+        => LoadAuditCatalog(forceRefresh: true);
+
+    private async void LoadAuditCatalog(bool forceRefresh)
     {
         if (IsLoadingAuditLogEntities || IsBusy)
             return;
@@ -348,12 +351,9 @@ public sealed class ScheduleAuditViewModel : INotifyPropertyChanged
 
         try
         {
-            var entities = await _auditLogsClient.GetServiceMappingsAsync(CancellationToken.None).ConfigureAwait(true);
-            var ordered = entities
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            var ordered = await _auditLogCatalogCache
+                .GetOrRefreshAsync(forceRefresh, CancellationToken.None)
+                .ConfigureAwait(true);
 
             _auditLogEntities.Clear();
             _auditLogEntities.Add(AllCatalogEntitiesOption);

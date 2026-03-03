@@ -8,6 +8,7 @@ using GenesysExtensionAudit.Infrastructure.Genesys.Pagination;
 using GenesysExtensionAudit.Infrastructure.Http;
 using GenesysExtensionAudit.Infrastructure.Logging;
 using GenesysExtensionAudit.Infrastructure.Reporting;
+using GenesysExtensionAudit.Services;
 using GenesysExtensionAudit.Scheduling;
 using GenesysExtensionAudit.ViewModels;
 using Microsoft.Extensions.Configuration;
@@ -112,6 +113,7 @@ public static class Bootstrapper
                 services.AddSingleton<IAuditOrchestrator, AuditOrchestrator>(); // IAuditOrchestrator is in Infrastructure.Application
                 services.AddSingleton<IExcelReportService, ExcelReportService>();
                 services.AddSingleton<IScheduledAuditService, ScheduledAuditService>();
+                services.AddSingleton<IAuditLogCatalogCache, AuditLogCatalogCache>();
 
                 // Navigation / MVVM shell
                 services.AddSingleton<INavigationService, NavigationService>();

@@ -106,6 +106,7 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
         IReadOnlyList<AuditLogFinding> auditLogFindings = [];
         IReadOnlyList<OperationalEventFinding> operationalEventFindings = [];
         IReadOnlyList<OutboundEventFinding> outboundEventFindings = [];
+        IReadOnlyList<NoLocationUserFinding> noLocationUserFindings = [];
 
         if (needsUsers)
         {
@@ -293,6 +294,9 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
         var inactiveUserFindings = options.RunInactiveUserAudit
             ? AnalyzeUserActivity(userDtos, options.InactiveUserThresholdDays)
             : [];
+        noLocationUserFindings = options.RunInactiveUserAudit
+            ? AnalyzeUsersMissingLocation(userDtos)
+            : [];
 
         Report(progress, 90, "Composing report...");
 
@@ -304,13 +308,14 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
             + extensionReport.InvalidAssignedExtensions.Count
             + groupFindings.Count + queueFindings.Count
             + flowFindings.Count + inactiveUserFindings.Count
+            + noLocationUserFindings.Count
             + didFindings.Count + auditLogFindings.Count
             + operationalEventFindings.Count + outboundEventFindings.Count;
 
         _logger.LogInformation(
-            "Audit complete. TotalFindings={TotalFindings} Groups={Groups} Queues={Queues} Flows={Flows} InactiveUsers={InactiveUsers} DIDs={DIDs} OperationalEvents={OperationalEvents} OutboundEvents={OutboundEvents}",
+            "Audit complete. TotalFindings={TotalFindings} Groups={Groups} Queues={Queues} Flows={Flows} StaleTokenUsers={StaleTokenUsers} NoLocationUsers={NoLocationUsers} DIDs={DIDs} OperationalEvents={OperationalEvents} OutboundEvents={OutboundEvents}",
             totalFindings, groupFindings.Count, queueFindings.Count,
-            flowFindings.Count, inactiveUserFindings.Count, didFindings.Count,
+            flowFindings.Count, inactiveUserFindings.Count, noLocationUserFindings.Count, didFindings.Count,
             operationalEventFindings.Count, outboundEventFindings.Count);
 
         Report(progress, 100,
@@ -329,6 +334,7 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
             QueueFindings = queueFindings,
             FlowFindings = flowFindings,
             InactiveUserFindings = inactiveUserFindings,
+            NoLocationUserFindings = noLocationUserFindings,
             DidFindings = didFindings,
             AuditLogFindings = auditLogFindings,
             OperationalEventFindings = operationalEventFindings,
@@ -507,29 +513,19 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
 
         foreach (var u in users.Where(u => u.Id is not null))
         {
-            string issue;
-            int? days = null;
+            var tokenLastIssued = GetTokenLastIssuedDate(u);
+            if (tokenLastIssued is null || tokenLastIssued >= cutoff)
+                continue;
 
-            if (u.TokenLastIssuedDate is null)
-            {
-                issue = "No token ever issued — user has never logged in via OAuth";
-            }
-            else if (u.TokenLastIssuedDate < cutoff)
-            {
-                days = (int)(DateTimeOffset.UtcNow - u.TokenLastIssuedDate.Value).TotalDays;
-                issue = $"No login in {days} days (threshold: {thresholdDays})";
-            }
-            else
-            {
-                continue; // active enough
-            }
+            var days = (int)(DateTimeOffset.UtcNow - tokenLastIssued.Value).TotalDays;
+            var issue = $"Token last issued {days} days ago (threshold: {thresholdDays})";
 
             findings.Add(new InactiveUserFinding(
                 UserId: u.Id!,
                 UserName: u.Name,
                 Email: u.Email,
                 State: u.State,
-                TokenLastIssuedDate: u.TokenLastIssuedDate,
+                TokenLastIssuedDate: tokenLastIssued,
                 DaysSinceLogin: days,
                 Issue: issue));
         }
@@ -537,6 +533,36 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
         return findings
             .OrderByDescending(f => f.DaysSinceLogin ?? int.MaxValue)
             .ThenBy(f => f.UserName)
+            .ToList();
+    }
+
+    private static IReadOnlyList<NoLocationUserFinding> AnalyzeUsersMissingLocation(
+        IReadOnlyList<GenesysUserDto> users)
+    {
+        var findings = new List<NoLocationUserFinding>();
+
+        foreach (var u in users.Where(u => u.Id is not null))
+        {
+            var locations = u.Locations ?? [];
+            var nonEmptyLocations = locations
+                .Where(l => l is not null
+                    && (!string.IsNullOrWhiteSpace(l.Id) || !string.IsNullOrWhiteSpace(l.Name)))
+                .ToList();
+
+            if (nonEmptyLocations.Count > 0)
+                continue;
+
+            findings.Add(new NoLocationUserFinding(
+                UserId: u.Id!,
+                UserName: u.Name,
+                Email: u.Email,
+                State: u.State,
+                LocationCount: 0,
+                Issue: "No location set on user account"));
+        }
+
+        return findings
+            .OrderBy(f => f.UserName)
             .ToList();
     }
 
@@ -670,6 +696,9 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
         var digits = new string(raw.Where(char.IsDigit).ToArray());
         return digits.Length > 0 ? digits : null;
     }
+
+    private static DateTimeOffset? GetTokenLastIssuedDate(GenesysUserDto user)
+        => user.TokenLastIssuedDate ?? user.TokenLastIssuedDateLegacy;
 
     private static IReadOnlyList<AuditLogFinding> AnalyzeAuditLogs(IReadOnlyList<JsonElement> records)
     {

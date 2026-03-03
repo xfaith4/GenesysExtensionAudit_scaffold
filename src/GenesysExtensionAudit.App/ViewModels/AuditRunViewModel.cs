@@ -10,6 +10,7 @@ using GenesysExtensionAudit.Application;
 using GenesysExtensionAudit.Infrastructure.Application;
 using GenesysExtensionAudit.Infrastructure.Genesys.Clients;
 using GenesysExtensionAudit.Infrastructure.Reporting;
+using GenesysExtensionAudit.Services;
 using Microsoft.Win32;
 
 namespace GenesysExtensionAudit.ViewModels;
@@ -26,7 +27,7 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
 
     private readonly IAuditOrchestrator _orchestrator;
     private readonly IExcelReportService _excelService;
-    private readonly IGenesysAuditLogsClient _auditLogsClient;
+    private readonly IAuditLogCatalogCache _auditLogCatalogCache;
     private readonly ObservableCollection<string> _auditLogEntities = [];
     private readonly ObservableCollection<RunSummaryRow> _lastRunSummary = [];
 
@@ -59,11 +60,11 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
     public RunAuditViewModel(
         IAuditOrchestrator orchestrator,
         IExcelReportService excelService,
-        IGenesysAuditLogsClient auditLogsClient)
+        IAuditLogCatalogCache auditLogCatalogCache)
     {
         _orchestrator = orchestrator ?? throw new ArgumentNullException(nameof(orchestrator));
         _excelService = excelService ?? throw new ArgumentNullException(nameof(excelService));
-        _auditLogsClient = auditLogsClient ?? throw new ArgumentNullException(nameof(auditLogsClient));
+        _auditLogCatalogCache = auditLogCatalogCache ?? throw new ArgumentNullException(nameof(auditLogCatalogCache));
 
         StartCommand = new RelayCommand(StartAsync, () => !IsRunning);
         CancelCommand = new RelayCommand(Cancel, () => IsRunning);
@@ -175,7 +176,7 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
             if (SetField(ref _runAuditLogs, value))
             {
                 if (value && !_auditLogEntitiesLoaded)
-                    RefreshAuditCatalog();
+                    LoadAuditCatalog(forceRefresh: false);
                 OnAuditSelectionChanged();
             }
         }
@@ -445,7 +446,10 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
         return [SelectedAuditLogEntity];
     }
 
-    private async void RefreshAuditCatalog()
+    private void RefreshAuditCatalog()
+        => LoadAuditCatalog(forceRefresh: true);
+
+    private async void LoadAuditCatalog(bool forceRefresh)
     {
         if (IsLoadingAuditLogEntities)
             return;
@@ -454,12 +458,9 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
 
         try
         {
-            var entities = await _auditLogsClient.GetServiceMappingsAsync(CancellationToken.None).ConfigureAwait(true);
-            var ordered = entities
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            var ordered = await _auditLogCatalogCache
+                .GetOrRefreshAsync(forceRefresh, CancellationToken.None)
+                .ConfigureAwait(true);
 
             _auditLogEntities.Clear();
             _auditLogEntities.Add(AllCatalogEntitiesOption);
@@ -539,7 +540,8 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
             ("Groups", report.Options.RunGroupAudit, report.GroupFindings.Count),
             ("Queues", report.Options.RunQueueAudit, report.QueueFindings.Count),
             ("Flows", report.Options.RunFlowAudit, report.FlowFindings.Count),
-            ("Inactive Users", report.Options.RunInactiveUserAudit, report.InactiveUserFindings.Count),
+            ("Users with Stale Token", report.Options.RunInactiveUserAudit, report.InactiveUserFindings.Count),
+            ("Users Missing Location", report.Options.RunInactiveUserAudit, report.NoLocationUserFindings.Count),
             ("DIDs", report.Options.RunDidAudit, report.DidFindings.Count),
             ("Audit Logs", report.Options.RunAuditLogs, report.AuditLogFindings.Count),
             ("Operational Event Logs", report.Options.RunOperationalEventLogs, report.OperationalEventFindings.Count),

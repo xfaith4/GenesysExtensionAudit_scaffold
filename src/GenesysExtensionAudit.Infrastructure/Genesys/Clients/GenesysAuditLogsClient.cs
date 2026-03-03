@@ -34,26 +34,27 @@ public sealed class GenesysAuditLogsClient : GenesysCloudApiClient, IGenesysAudi
 
     public async Task<IReadOnlyList<string>> GetServiceMappingsAsync(CancellationToken ct)
     {
-        var mappings = ParseServiceMappings(
-            await GetJsonAsync<JsonElement>("/api/v2/audits/query/servicemapping", ct).ConfigureAwait(false));
+        var values = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        if (mappings.Count > 0)
-            return mappings;
+        var standard = await TryGetCatalogAsync("/api/v2/audits/query/servicemapping", ct).ConfigureAwait(false);
+        if (standard.HasValue)
+            CollectMappings(values, standard.Value, null, allowDictionaryKeyNames: true);
 
-        // Fallback for tenants where service mapping shape is sparse but action catalog is available.
-        try
+        var realtime = await TryGetCatalogAsync("/api/v2/audits/query/realtime/servicemapping", ct).ConfigureAwait(false);
+        if (realtime.HasValue)
+            CollectMappings(values, realtime.Value, null, allowDictionaryKeyNames: true);
+
+        if (values.Count == 0)
         {
-            var catalog = await GetJsonAsync<JsonElement>("/api/v2/audits/query/actioncatalog", ct).ConfigureAwait(false);
-            var catalogMappings = ParseServiceMappings(catalog);
-            if (catalogMappings.Count > 0)
-                return catalogMappings;
-        }
-        catch
-        {
-            // Keep behavior non-fatal for the dropdown refresh path.
+            // Fallback for tenants where service mapping shape is sparse but action catalog is available.
+            var catalog = await TryGetCatalogAsync("/api/v2/audits/query/actioncatalog", ct).ConfigureAwait(false);
+            if (catalog.HasValue)
+                CollectMappings(values, catalog.Value, null, allowDictionaryKeyNames: true);
         }
 
-        return mappings;
+        var list = values.ToList();
+        list.Sort(StringComparer.OrdinalIgnoreCase);
+        return list;
     }
 
     public async Task<string> SubmitAuditQueryAsync(AuditLogsSubmitRequestDto request, CancellationToken ct)
@@ -104,59 +105,72 @@ public sealed class GenesysAuditLogsClient : GenesysCloudApiClient, IGenesysAudi
         return await GetJsonAsync<AuditLogsResultsPageDto>(path, ct).ConfigureAwait(false);
     }
 
-    private static IReadOnlyList<string> ParseServiceMappings(JsonElement json)
+    private async Task<JsonElement?> TryGetCatalogAsync(string path, CancellationToken ct)
     {
-        var values = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        CollectMappings(values, json, null);
-        var list = values.ToList();
-        list.Sort(StringComparer.OrdinalIgnoreCase);
-        return list;
+        try
+        {
+            return await GetJsonAsync<JsonElement>(path, ct).ConfigureAwait(false);
+        }
+        catch (GenesysApiException ex) when ((int)ex.StatusCode == 404 || (int)ex.StatusCode == 400)
+        {
+            return null;
+        }
+        catch
+        {
+            // Keep behavior non-fatal for dropdown population paths.
+            return null;
+        }
     }
 
-    private static void CollectMappings(HashSet<string> values, JsonElement element, string? propertyName)
+    private static void CollectMappings(
+        HashSet<string> values,
+        JsonElement element,
+        string? parentPropertyName,
+        bool allowDictionaryKeyNames)
     {
         switch (element.ValueKind)
         {
             case JsonValueKind.String:
             {
-                var value = element.GetString();
-                if (!string.IsNullOrWhiteSpace(value))
-                    values.Add(value.Trim());
+                if (IsMappingValuePropertyName(parentPropertyName))
+                {
+                    var value = element.GetString();
+                    if (!string.IsNullOrWhiteSpace(value))
+                        values.Add(value.Trim());
+                }
+
                 return;
             }
+
             case JsonValueKind.Array:
                 foreach (var item in element.EnumerateArray())
-                    CollectMappings(values, item, null);
+                    CollectMappings(values, item, parentPropertyName, allowDictionaryKeyNames);
                 return;
+
             case JsonValueKind.Object:
                 break;
+
             default:
                 return;
         }
 
-        if (TryAddFromKnownFields(values, element))
-            return;
+        TryAddFromKnownFields(values, element);
 
         foreach (var prop in element.EnumerateObject())
         {
-            // Some responses use { "<serviceName>": [...] } dictionaries.
-            if (prop.Value.ValueKind is JsonValueKind.Array or JsonValueKind.Object)
-            {
-                if (!string.IsNullOrWhiteSpace(prop.Name) &&
-                    !IsContainerPropertyName(prop.Name))
-                {
-                    values.Add(prop.Name.Trim());
-                }
-
-                CollectMappings(values, prop.Value, prop.Name);
+            var propName = prop.Name?.Trim();
+            if (string.IsNullOrWhiteSpace(propName))
                 continue;
+
+            if (allowDictionaryKeyNames
+                && prop.Value.ValueKind is JsonValueKind.Array or JsonValueKind.Object
+                && !IsContainerPropertyName(propName))
+            {
+                values.Add(propName);
             }
 
-            CollectMappings(values, prop.Value, prop.Name);
+            CollectMappings(values, prop.Value, propName, allowDictionaryKeyNames);
         }
-
-        if (!string.IsNullOrWhiteSpace(propertyName) && !IsContainerPropertyName(propertyName!))
-            values.Add(propertyName!.Trim());
     }
 
     private static bool TryAddFromKnownFields(HashSet<string> values, JsonElement element)
@@ -191,7 +205,16 @@ public sealed class GenesysAuditLogsClient : GenesysCloudApiClient, IGenesysAudi
            || name.Equals("results", StringComparison.OrdinalIgnoreCase)
            || name.Equals("items", StringComparison.OrdinalIgnoreCase)
            || name.Equals("actions", StringComparison.OrdinalIgnoreCase)
+           || name.Equals("serviceMappings", StringComparison.OrdinalIgnoreCase)
+           || name.Equals("actionMappings", StringComparison.OrdinalIgnoreCase)
            || name.Equals("selfUri", StringComparison.OrdinalIgnoreCase)
            || name.Equals("nextUri", StringComparison.OrdinalIgnoreCase)
            || name.Equals("previousUri", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsMappingValuePropertyName(string? name)
+        => !string.IsNullOrWhiteSpace(name)
+           && (name.Equals("serviceName", StringComparison.OrdinalIgnoreCase)
+               || name.Equals("serviceNames", StringComparison.OrdinalIgnoreCase)
+               || name.Equals("entityType", StringComparison.OrdinalIgnoreCase)
+               || name.Equals("entityTypes", StringComparison.OrdinalIgnoreCase));
 }

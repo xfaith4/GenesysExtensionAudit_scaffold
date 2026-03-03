@@ -43,7 +43,8 @@ public sealed class ExcelReportService : IExcelReportService
         WriteEmptyGroupsSheet(wb, report);
         WriteEmptyQueuesSheet(wb, report);
         WriteStaleFlowsSheet(wb, report);
-        WriteInactiveUsersSheet(wb, report);
+        WriteStaleTokenUsersSheet(wb, report);
+        WriteUsersMissingLocationSheet(wb, report);
         WriteInvalidExtensionsSheet(wb, report);
 
         using var ms = new MemoryStream();
@@ -67,7 +68,8 @@ public sealed class ExcelReportService : IExcelReportService
             ("Empty_Groups", "Empty/Single-Member Groups", report.Options.RunGroupAudit, report.GroupFindings.Count, "Warning", "Groups with zero or one member"),
             ("Empty_Queues", "Empty/Duplicate Queues", report.Options.RunQueueAudit, report.QueueFindings.Count, "Warning", "Queues with zero members or duplicate names"),
             ("Stale_Flows", "Stale/Unpublished Flows", report.Options.RunFlowAudit, report.FlowFindings.Count, "Warning", $"Flows not republished in {report.Options.StaleFlowThresholdDays}+ days or never published"),
-            ("Inactive_Users", "Inactive Users (No Recent Login)", report.Options.RunInactiveUserAudit, report.InactiveUserFindings.Count, "Warning", $"Users with no OAuth login in {report.Options.InactiveUserThresholdDays}+ days"),
+            ("Stale_Tokens", "Users with Stale Token", report.Options.RunInactiveUserAudit, report.InactiveUserFindings.Count, "Warning", $"Users with token last-issued older than {report.Options.InactiveUserThresholdDays} days"),
+            ("Users_No_Location", "Users Missing Location", report.Options.RunInactiveUserAudit, report.NoLocationUserFindings.Count, "Warning", "Users with no location configured on their account"),
             ("DID_Mismatches", "DID Mismatches", report.Options.RunDidAudit, report.DidFindings.Count, "Warning", "DIDs unassigned, orphaned, or assigned to inactive users"),
             ("Audit_Logs", "Audit Logs Events", report.Options.RunAuditLogs, report.AuditLogFindings.Count, "Info", "Audit transaction events returned from Genesys audit logs query"),
             ("Operational_Events", "Operational Event Logs", report.Options.RunOperationalEventLogs, report.OperationalEventFindings.Count, "Info", $"Operational events from last {report.Options.OperationalEventLookbackDays} day(s)"),
@@ -409,13 +411,13 @@ public sealed class ExcelReportService : IExcelReportService
 
     // ─── Inactive Users ──────────────────────────────────────────────────────
 
-    private static void WriteInactiveUsersSheet(IXLWorkbook wb, AuditReportData report)
+    private static void WriteStaleTokenUsersSheet(IXLWorkbook wb, AuditReportData report)
     {
-        var ws = wb.Worksheets.Add("Inactive_Users");
+        var ws = wb.Worksheets.Add("Stale_Tokens");
         var findings = report.InactiveUserFindings;
 
-        string[] headers = ["User Name", "User ID", "Email", "State", "Last Login (Token)", "Days Since Login", "Issue"];
-        WriteSheetHeader(ws, $"Users — No Login in {report.Options.InactiveUserThresholdDays}+ Days",
+        string[] headers = ["User Name", "User ID", "Email", "State", "Token Last Issued (UTC)", "Days Since Issued", "Issue"];
+        WriteSheetHeader(ws, $"Users — Token Last Issued Older Than {report.Options.InactiveUserThresholdDays} Days",
             report, findings.Count, headers);
 
         int row = 4;
@@ -425,17 +427,40 @@ public sealed class ExcelReportService : IExcelReportService
             ws.Cell(row, 2).Value = f.UserId;
             ws.Cell(row, 3).Value = f.Email;
             ws.Cell(row, 4).Value = f.State;
-            ws.Cell(row, 5).Value = f.TokenLastIssuedDate?.ToString("yyyy-MM-dd HH:mm") ?? "Never";
+            ws.Cell(row, 5).Value = f.TokenLastIssuedDate?.ToString("yyyy-MM-dd HH:mm") ?? "";
             ws.Cell(row, 6).Value = f.DaysSinceLogin.HasValue ? f.DaysSinceLogin.Value : "N/A";
             ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 7).Value = f.Issue;
             ApplyAltRow(ws, row, 7);
-            if (f.TokenLastIssuedDate is null)
-                ws.Cell(row, 5).Style.Fill.BackgroundColor = SeverityWarning;
             row++;
         }
 
         AdjustColumns(ws, 7);
+    }
+
+    private static void WriteUsersMissingLocationSheet(IXLWorkbook wb, AuditReportData report)
+    {
+        var ws = wb.Worksheets.Add("Users_No_Location");
+        var findings = report.NoLocationUserFindings;
+
+        string[] headers = ["User Name", "User ID", "Email", "State", "Location Count", "Issue"];
+        WriteSheetHeader(ws, "Users — Missing Location", report, findings.Count, headers);
+
+        var row = 4;
+        foreach (var f in findings)
+        {
+            ws.Cell(row, 1).Value = f.UserName;
+            ws.Cell(row, 2).Value = f.UserId;
+            ws.Cell(row, 3).Value = f.Email;
+            ws.Cell(row, 4).Value = f.State;
+            ws.Cell(row, 5).Value = f.LocationCount;
+            ws.Cell(row, 5).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 6).Value = f.Issue;
+            ApplyAltRow(ws, row, 6);
+            row++;
+        }
+
+        AdjustColumns(ws, 6);
     }
 
     // ─── Invalid Extensions ──────────────────────────────────────────────────

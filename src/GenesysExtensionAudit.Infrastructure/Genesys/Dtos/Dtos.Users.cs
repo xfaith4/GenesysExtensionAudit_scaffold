@@ -59,11 +59,29 @@ public sealed class GenesysUserDto
 
     /// <summary>
     /// Date/time of the last OAuth token issued to this user.
-    /// Populated when fetching with expand=tokenLastIssuedDate.
+    /// Populated when fetching with expand=lasttokenissued.
     /// May be null for service accounts or users who have never logged in via OAuth.
     /// </summary>
-    [JsonPropertyName("tokenLastIssuedDate")]
+    [JsonPropertyName("lasttokenissued")]
     public DateTimeOffset? TokenLastIssuedDate { get; init; }
+
+    /// <summary>
+    /// Backward-compatible mapping for tenants still returning tokenLastIssuedDate.
+    /// </summary>
+    [JsonPropertyName("tokenLastIssuedDate")]
+    public DateTimeOffset? TokenLastIssuedDateLegacy { get; init; }
+
+    /// <summary>
+    /// Populated when fetching with expand=locations.
+    /// </summary>
+    [JsonPropertyName("locations")]
+    public List<GenesysLocationRefDto>? Locations { get; init; }
+
+    /// <summary>
+    /// Populated when fetching with expand=station.
+    /// </summary>
+    [JsonPropertyName("station")]
+    public GenesysStationRefDto? Station { get; init; }
 }
 
 public sealed class GenesysPrimaryContactInfoDto
@@ -83,4 +101,22 @@ public sealed class GenesysPrimaryContactInfoDto
     /// <summary>Some tenants include a dedicated extension field.</summary>
     [JsonPropertyName("extension")]
     public string? Extension { get; init; }
+}
+
+public sealed class GenesysLocationRefDto
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; init; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; init; }
+}
+
+public sealed class GenesysStationRefDto
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; init; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; init; }
 }

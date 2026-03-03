@@ -24,7 +24,7 @@ public sealed class ApiClientIntegrationTests
     {
         var handler = new RouteMockHttpMessageHandler();
 
-        handler.WhenGet("/api/v2/users?pageSize=2&pageNumber=1&state=active&expand=tokenLastIssuedDate",
+        handler.WhenGet("/api/v2/users?pageSize=2&pageNumber=1&expand=locations,station,lasttokenissued&state=active",
             json: """
                   {
                     "entities": [
@@ -42,7 +42,7 @@ public sealed class ApiClientIntegrationTests
 
         Assert.Equal(2, page.Items.Count);
         Assert.Equal("u1", page.Items[0].Id);
-        handler.AssertCalledTimes("/api/v2/users?pageSize=2&pageNumber=1&state=active&expand=tokenLastIssuedDate", 1);
+        handler.AssertCalledTimes("/api/v2/users?pageSize=2&pageNumber=1&expand=locations,station,lasttokenissued&state=active", 1);
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public sealed class ApiClientIntegrationTests
     {
         var handler = new RouteMockHttpMessageHandler();
 
-        handler.WhenGet("/api/v2/users?pageSize=3&pageNumber=1&expand=tokenLastIssuedDate",
+        handler.WhenGet("/api/v2/users?pageSize=3&pageNumber=1&expand=locations,station,lasttokenissued",
             json: """
                   {
                     "entities": [
@@ -73,7 +73,7 @@ public sealed class ApiClientIntegrationTests
     {
         var handler = new RouteMockHttpMessageHandler();
 
-        handler.WhenGet("/api/v2/users?pageSize=2&pageNumber=1&state=active&expand=tokenLastIssuedDate",
+        handler.WhenGet("/api/v2/users?pageSize=2&pageNumber=1&expand=locations,station,lasttokenissued&state=active",
             json: """
                   {
                     "entities": [
@@ -84,7 +84,7 @@ public sealed class ApiClientIntegrationTests
                   }
                   """);
 
-        handler.WhenGet("/api/v2/users?pageSize=2&pageNumber=2&state=active&expand=tokenLastIssuedDate",
+        handler.WhenGet("/api/v2/users?pageSize=2&pageNumber=2&expand=locations,station,lasttokenissued&state=active",
             json: """
                   {
                     "entities": [
