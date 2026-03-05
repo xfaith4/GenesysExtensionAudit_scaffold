@@ -47,6 +47,7 @@ public sealed class ScheduleAuditViewModel : INotifyPropertyChanged
     private int _operationalEventLookbackDays = 7;
     private bool _runOutboundEvents;
     private string _selectedAuditLogEntity = AllCatalogEntitiesOption;
+    private bool _pushToGitHub;
     private bool _isLoadingAuditLogEntities;
     private bool _isBusy;
     private string _statusMessage = "Ready.";
@@ -177,6 +178,12 @@ public sealed class ScheduleAuditViewModel : INotifyPropertyChanged
 
     public bool RunOutboundEvents { get => _runOutboundEvents; set => SetField(ref _runOutboundEvents, value); }
 
+    /// <summary>
+    /// When true the scheduled runner will push the generated report to the
+    /// GitHub repository configured in appsettings.json after saving locally.
+    /// </summary>
+    public bool PushToGitHub { get => _pushToGitHub; set => SetField(ref _pushToGitHub, value); }
+
     public ObservableCollection<string> AuditLogEntities => _auditLogEntities;
 
     public string SelectedAuditLogEntity
@@ -295,6 +302,7 @@ public sealed class ScheduleAuditViewModel : INotifyPropertyChanged
                 RunOperationalEventLogs = RunOperationalEventLogs,
                 OperationalEventLookbackDays = OperationalEventLookbackDays,
                 RunOutboundEvents = RunOutboundEvents,
+                PushToGitHub = PushToGitHub,
                 AuditLogServiceName = string.Equals(SelectedAuditLogEntity, AllCatalogEntitiesOption, StringComparison.Ordinal)
                     ? null
                     : SelectedAuditLogEntity

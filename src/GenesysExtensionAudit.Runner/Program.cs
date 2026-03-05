@@ -73,6 +73,7 @@ static async Task<int> RunAsync(string[] args)
                 services.Configure<AuditOptions>(ctx.Configuration.GetSection("Audit"));
                 services.Configure<ExportOptions>(ctx.Configuration.GetSection("Export"));
                 services.Configure<SharePointOptions>(ctx.Configuration.GetSection("SharePoint"));
+                services.Configure<GitHubOptions>(ctx.Configuration.GetSection("GitHub"));
 
                 // ── Core domain services ──────────────────────────────────────
                 services.AddSingleton<IExtensionNormalizer, ExtensionNormalizer>();
@@ -139,6 +140,7 @@ static async Task<int> RunAsync(string[] args)
                 services.AddSingleton<IAuditOrchestrator, AuditOrchestrator>();
                 services.AddSingleton<IExcelReportService, ExcelReportService>();
                 services.AddSingleton<IFileUploadService, SharePointUploadService>();
+                services.AddHttpClient<IGitHubUploadService, GitHubUploadService>();
             })
             .Build();
 
@@ -149,6 +151,7 @@ static async Task<int> RunAsync(string[] args)
         var auditOpts = host.Services.GetRequiredService<IOptions<AuditOptions>>().Value;
         var exportOpts = host.Services.GetRequiredService<IOptions<ExportOptions>>().Value;
         var spOpts = host.Services.GetRequiredService<IOptions<SharePointOptions>>().Value;
+        var githubOpts = host.Services.GetRequiredService<IOptions<GitHubOptions>>().Value;
 
         logger.LogInformation(
             "GenesysExtensionAudit Runner starting. Region={Region} DryRun={DryRun} ScheduleProfile={ScheduleProfile}",
@@ -161,14 +164,15 @@ static async Task<int> RunAsync(string[] args)
                 logger.LogInformation("[{Percent,3}%] {Message}", p.Percent, p.Message);
         });
 
+        ScheduledAuditProfile? loadedProfile = null;
         var runOptions = new AuditRunOptions();
         if (!string.IsNullOrWhiteSpace(scheduleProfilePath))
         {
-            var profile = await LoadScheduledProfileAsync(scheduleProfilePath, cts.Token);
-            runOptions = BuildRunOptionsFromProfile(profile);
+            loadedProfile = await LoadScheduledProfileAsync(scheduleProfilePath, cts.Token);
+            runOptions = BuildRunOptionsFromProfile(loadedProfile);
             logger.LogInformation(
                 "Loaded schedule profile {ProfilePath}. ScheduleId={ScheduleId} Name={Name} CreatedBy={CreatedBy}",
-                scheduleProfilePath, profile.ScheduleId, profile.Name, profile.CreatedBy);
+                scheduleProfilePath, loadedProfile.ScheduleId, loadedProfile.Name, loadedProfile.CreatedBy);
         }
         else
         {
@@ -208,6 +212,38 @@ static async Task<int> RunAsync(string[] args)
         else
         {
             logger.LogInformation("SharePoint not configured — local file only.");
+        }
+
+        // ── Push to GitHub ────────────────────────────────────────────────────
+        // When running from a schedule profile: only push if PushToGitHub=true
+        // (set via the Schedule Audits UI checkbox in the WPF app).
+        // When running directly from appsettings.json (no profile): push
+        // whenever GitHub credentials are configured — this allows standalone
+        // headless runs to always upload if GitHub is set up.
+        var pushToGitHub = !dryRun &&
+            githubOpts.IsConfigured &&
+            (loadedProfile is null || loadedProfile.PushToGitHub);
+
+        if (dryRun)
+        {
+            logger.LogInformation("--dry-run: GitHub push skipped.");
+        }
+        else if (pushToGitHub)
+        {
+            var gitHubService = host.Services.GetRequiredService<IGitHubUploadService>();
+            logger.LogInformation(
+                "Pushing to GitHub: {Owner}/{Repo} branch={Branch} folder={Folder}",
+                githubOpts.Owner, githubOpts.Repository, githubOpts.Branch, githubOpts.FolderPath);
+            var ghUrl = await gitHubService.UploadAsync(fileName, xlsx, cts.Token);
+            logger.LogInformation("GitHub push complete: {Url}", ghUrl);
+        }
+        else if (!githubOpts.IsConfigured)
+        {
+            logger.LogInformation("GitHub not configured — skipping push.");
+        }
+        else
+        {
+            logger.LogInformation("GitHub push disabled for this scheduled run (PushToGitHub=false).");
         }
 
         logger.LogInformation("Runner finished successfully. Exit code: 0");

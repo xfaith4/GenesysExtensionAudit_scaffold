@@ -58,7 +58,8 @@ public sealed class ScheduledAuditService : IScheduledAuditService
             RunOutboundEvents = definition.RunOutboundEvents,
             AuditLogServiceName = string.IsNullOrWhiteSpace(definition.AuditLogServiceName)
                 ? null
-                : definition.AuditLogServiceName!.Trim()
+                : definition.AuditLogServiceName!.Trim(),
+            PushToGitHub = definition.PushToGitHub
         };
 
         await File.WriteAllTextAsync(profilePath, JsonSerializer.Serialize(profile, JsonOptions), ct).ConfigureAwait(false);
