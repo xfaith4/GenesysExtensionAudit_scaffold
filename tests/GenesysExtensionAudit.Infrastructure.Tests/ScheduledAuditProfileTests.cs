@@ -72,4 +72,48 @@ public sealed class ScheduledAuditProfileTests
         Assert.Contains("--schedule-profile", command, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(profile, extracted);
     }
+
+    [Fact]
+    public void ScheduledAuditProfile_PushToGitHub_RoundTrips()
+    {
+        var profile = new ScheduledAuditProfile
+        {
+            ScheduleId = "gh-test",
+            Name = "GitHub Push Test",
+            RunQueueAudit = true,
+            PushToGitHub = true
+        };
+
+        var json = JsonSerializer.Serialize(profile);
+        var rehydrated = JsonSerializer.Deserialize<ScheduledAuditProfile>(json);
+
+        Assert.NotNull(rehydrated);
+        Assert.True(rehydrated!.PushToGitHub);
+        Assert.True(rehydrated.HasAnyAuditSelected);
+    }
+
+    [Fact]
+    public void ScheduledAuditProfile_PushToGitHub_DefaultsToFalse()
+    {
+        var profile = new ScheduledAuditProfile();
+        Assert.False(profile.PushToGitHub);
+    }
+
+    [Theory]
+    [InlineData("", "owner", "repo", false)]
+    [InlineData("token", "", "repo", false)]
+    [InlineData("token", "owner", "", false)]
+    [InlineData("token", "owner", "repo", true)]
+    public void GitHubOptions_IsConfigured_RequiresTokenOwnerAndRepo(
+        string token, string owner, string repository, bool expected)
+    {
+        var opts = new GitHubOptions
+        {
+            Token = token,
+            Owner = owner,
+            Repository = repository
+        };
+
+        Assert.Equal(expected, opts.IsConfigured);
+    }
 }

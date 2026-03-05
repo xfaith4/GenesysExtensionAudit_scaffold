@@ -152,6 +152,20 @@
                             </StackPanel>
                         </StackPanel>
                     </Border>
+
+                    <!-- ─── Export Options ─── -->
+                    <Border Margin="0,10,0,0" Padding="10" Background="#F0FDF4" BorderBrush="#BBF7D0" BorderThickness="1" CornerRadius="4">
+                        <StackPanel>
+                            <TextBlock Text="Export Options" FontWeight="SemiBold" Margin="0,0,0,6" />
+                            <CheckBox Content="Push to GitHub after each scheduled run"
+                                      IsChecked="{Binding PushToGitHub}"
+                                      Margin="0,0,0,4" />
+                            <TextBlock Text="When enabled the runner will push the Excel report to the GitHub repository configured in appsettings.json (GitHub:Token, Owner, Repository)."
+                                       Foreground="#6B7280"
+                                       FontSize="11"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </GroupBox>
 

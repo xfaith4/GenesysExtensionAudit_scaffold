@@ -35,6 +35,12 @@ public sealed class ScheduledAuditProfile
     /// </summary>
     public string? AuditLogServiceName { get; set; }
 
+    /// <summary>
+    /// When true the runner will push the generated Excel report to the GitHub
+    /// repository configured under the "GitHub" section of appsettings.json.
+    /// </summary>
+    public bool PushToGitHub { get; set; }
+
     [JsonIgnore]
     public bool HasAnyAuditSelected =>
         RunExtensionAudit || RunGroupAudit || RunQueueAudit || RunFlowAudit ||

@@ -35,6 +35,12 @@ public sealed class ScheduledAuditDefinition
     public int OperationalEventLookbackDays { get; set; } = 7;
     public bool RunOutboundEvents { get; set; }
 
+    /// <summary>
+    /// When true the runner will push the generated report to the GitHub
+    /// repository configured in appsettings.json.
+    /// </summary>
+    public bool PushToGitHub { get; set; }
+
     public bool HasAnyAuditSelected =>
         RunExtensionAudit || RunGroupAudit || RunQueueAudit || RunFlowAudit ||
         RunInactiveUserAudit || RunDidAudit || RunAuditLogs ||

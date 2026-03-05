@@ -28,6 +28,7 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
     private readonly IAuditOrchestrator _orchestrator;
     private readonly IExcelReportService _excelService;
     private readonly IAuditLogCatalogCache _auditLogCatalogCache;
+    private readonly IGitHubUploadService _gitHubUploadService;
     private readonly ObservableCollection<string> _auditLogEntities = [];
     private readonly ObservableCollection<RunSummaryRow> _lastRunSummary = [];
 
@@ -48,6 +49,7 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
     private bool _isLoadingAuditLogEntities;
     private bool _auditLogEntitiesLoaded;
     private string _selectedAuditLogEntity = AllCatalogEntitiesOption;
+    private bool _pushToGitHub;
     private bool _isRunning;
     private int _progressPercent;
     private string _progressMessage = string.Empty;
@@ -60,11 +62,13 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
     public RunAuditViewModel(
         IAuditOrchestrator orchestrator,
         IExcelReportService excelService,
-        IAuditLogCatalogCache auditLogCatalogCache)
+        IAuditLogCatalogCache auditLogCatalogCache,
+        IGitHubUploadService gitHubUploadService)
     {
         _orchestrator = orchestrator ?? throw new ArgumentNullException(nameof(orchestrator));
         _excelService = excelService ?? throw new ArgumentNullException(nameof(excelService));
         _auditLogCatalogCache = auditLogCatalogCache ?? throw new ArgumentNullException(nameof(auditLogCatalogCache));
+        _gitHubUploadService = gitHubUploadService ?? throw new ArgumentNullException(nameof(gitHubUploadService));
 
         StartCommand = new RelayCommand(StartAsync, () => !IsRunning);
         CancelCommand = new RelayCommand(Cancel, () => IsRunning);
@@ -215,6 +219,19 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
         get => _selectedAuditLogEntity;
         set => SetField(ref _selectedAuditLogEntity, string.IsNullOrWhiteSpace(value) ? AllCatalogEntitiesOption : value);
     }
+
+    /// <summary>
+    /// When true (and GitHub is configured), the generated report is pushed to the
+    /// configured GitHub repository after being saved locally.
+    /// </summary>
+    public bool PushToGitHub
+    {
+        get => _pushToGitHub;
+        set => SetField(ref _pushToGitHub, value);
+    }
+
+    /// <summary>True when the GitHub configuration in appsettings.json is complete.</summary>
+    public bool IsGitHubConfigured => _gitHubUploadService.IsConfigured;
 
     public bool IsLoadingAuditLogEntities
     {
@@ -516,6 +533,24 @@ public sealed class RunAuditViewModel : INotifyPropertyChanged
             LastExportPath = dlg.FileName;
             OnPropertyChanged(nameof(HasExport));
             StatusMessage = $"Saved: {Path.GetFileName(dlg.FileName)}";
+
+            if (PushToGitHub && _gitHubUploadService.IsConfigured)
+            {
+                StatusMessage = "Pushing report to GitHub...";
+                try
+                {
+                    var url = await _gitHubUploadService
+                        .UploadAsync(Path.GetFileName(dlg.FileName), xlsx, ct)
+                        .ConfigureAwait(true);
+                    StatusMessage = $"Saved: {Path.GetFileName(dlg.FileName)} | Pushed to GitHub: {url}";
+                }
+                catch (Exception ex)
+                {
+                    // Local save succeeded; surface GitHub error as a warning rather than overwriting the success state.
+                    ErrorMessage = $"GitHub push failed: {ex.Message}";
+                    StatusMessage = $"Saved: {Path.GetFileName(dlg.FileName)} (GitHub push failed)";
+                }
+            }
         }
         else
         {

@@ -152,6 +152,32 @@
                         Padding="16,8" />
             </StackPanel>
 
+            <!-- ─── Export Options ─── -->
+            <GroupBox Header="Export Options" Padding="12" Margin="0,0,0,16">
+                <StackPanel>
+                    <CheckBox Content="Push to GitHub after saving"
+                              IsChecked="{Binding PushToGitHub}"
+                              IsEnabled="{Binding IsGitHubConfigured}"
+                              Margin="0,0,0,4" />
+                    <TextBlock Foreground="#6B7280" FontSize="11" TextWrapping="Wrap">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsGitHubConfigured}" Value="True">
+                                        <Setter Property="Text"
+                                                Value="The report will be saved locally first, then pushed to the configured GitHub repository." />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsGitHubConfigured}" Value="False">
+                                        <Setter Property="Text"
+                                                Value="GitHub push is disabled. Configure GitHub:Token, GitHub:Owner, and GitHub:Repository in appsettings.json to enable." />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
+            </GroupBox>
+
             <!-- ─── Progress ─── -->
             <GroupBox Header="Progress" Padding="12" Margin="0,0,0,16"
                       Visibility="{Binding IsRunning, Converter={StaticResource BoolToVisibility}}">

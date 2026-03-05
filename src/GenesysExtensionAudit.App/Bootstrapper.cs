@@ -2,6 +2,7 @@ using GenesysExtensionAudit.Application;
 using GenesysExtensionAudit.Domain.Paging;
 using GenesysExtensionAudit.Domain.Services;
 using GenesysExtensionAudit.Infrastructure.Application;
+using GenesysExtensionAudit.Infrastructure.Configuration;
 using GenesysExtensionAudit.Infrastructure.Domain.Services;
 using GenesysExtensionAudit.Infrastructure.Genesys.Clients;
 using GenesysExtensionAudit.Infrastructure.Genesys.Pagination;
@@ -45,6 +46,7 @@ public static class Bootstrapper
                 services.Configure<GenesysRegionOptions>(ctx.Configuration.GetSection("Genesys"));
                 services.Configure<GenesysOAuthOptions>(ctx.Configuration.GetSection("GenesysOAuth"));
                 services.Configure<ScheduledAuditOptions>(ctx.Configuration.GetSection("Scheduling"));
+                services.Configure<GitHubOptions>(ctx.Configuration.GetSection("GitHub"));
 
                 // Core domain services
                 services.AddSingleton<IExtensionNormalizer, ExtensionNormalizer>();
@@ -112,6 +114,7 @@ public static class Bootstrapper
                 // Orchestrator + reporting
                 services.AddSingleton<IAuditOrchestrator, AuditOrchestrator>(); // IAuditOrchestrator is in Infrastructure.Application
                 services.AddSingleton<IExcelReportService, ExcelReportService>();
+                services.AddHttpClient<IGitHubUploadService, GitHubUploadService>();
                 services.AddSingleton<IScheduledAuditService, ScheduledAuditService>();
                 services.AddSingleton<IAuditLogCatalogCache, AuditLogCatalogCache>();
 
