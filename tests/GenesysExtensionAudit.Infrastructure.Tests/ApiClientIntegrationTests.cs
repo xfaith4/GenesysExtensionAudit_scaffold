@@ -107,6 +107,82 @@ public sealed class ApiClientIntegrationTests
     }
 
     // ──────────────────────────────────────────────
+    // lastTokenIssued / NullableDateTimeOffsetConverter
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task GenesysUsersClient_GetPage_LastTokenIssued_EmptyString_ReturnsNullToken()
+    {
+        // Genesys Cloud sometimes returns "" instead of null for users who have
+        // never issued an OAuth token.  The converter must not throw and must
+        // expose null on the DTO.
+        var handler = new RouteMockHttpMessageHandler();
+
+        handler.WhenGet("/api/v2/users?pageSize=1&pageNumber=1&expand=locations,station,lasttokenissued&state=active",
+            json: """
+                  {
+                    "entities": [
+                      { "id": "u1", "name": "No Token User", "state": "active", "lasttokenissued": "" }
+                    ],
+                    "pageSize": 1, "pageNumber": 1, "pageCount": 1, "total": 1
+                  }
+                  """);
+
+        var client = BuildUsersClient(handler, "mypurecloud.com");
+        var page = await client.GetUsersPageAsync(pageNumber: 1, pageSize: 1, includeInactive: false, ct: default);
+
+        Assert.Single(page.Items);
+        Assert.Null(page.Items[0].TokenLastIssuedDate);
+    }
+
+    [Fact]
+    public async Task GenesysUsersClient_GetPage_LastTokenIssued_NullValue_ReturnsNullToken()
+    {
+        var handler = new RouteMockHttpMessageHandler();
+
+        handler.WhenGet("/api/v2/users?pageSize=1&pageNumber=1&expand=locations,station,lasttokenissued&state=active",
+            json: """
+                  {
+                    "entities": [
+                      { "id": "u1", "name": "Service Account", "state": "active", "lasttokenissued": null }
+                    ],
+                    "pageSize": 1, "pageNumber": 1, "pageCount": 1, "total": 1
+                  }
+                  """);
+
+        var client = BuildUsersClient(handler, "mypurecloud.com");
+        var page = await client.GetUsersPageAsync(pageNumber: 1, pageSize: 1, includeInactive: false, ct: default);
+
+        Assert.Single(page.Items);
+        Assert.Null(page.Items[0].TokenLastIssuedDate);
+    }
+
+    [Fact]
+    public async Task GenesysUsersClient_GetPage_LastTokenIssued_ValidDate_ParsedCorrectly()
+    {
+        var handler = new RouteMockHttpMessageHandler();
+
+        handler.WhenGet("/api/v2/users?pageSize=1&pageNumber=1&expand=locations,station,lasttokenissued&state=active",
+            json: """
+                  {
+                    "entities": [
+                      { "id": "u1", "name": "Active User", "state": "active", "lasttokenissued": "2024-11-15T08:30:00.000Z" }
+                    ],
+                    "pageSize": 1, "pageNumber": 1, "pageCount": 1, "total": 1
+                  }
+                  """);
+
+        var client = BuildUsersClient(handler, "mypurecloud.com");
+        var page = await client.GetUsersPageAsync(pageNumber: 1, pageSize: 1, includeInactive: false, ct: default);
+
+        Assert.Single(page.Items);
+        Assert.NotNull(page.Items[0].TokenLastIssuedDate);
+        Assert.Equal(
+            new DateTimeOffset(2024, 11, 15, 8, 30, 0, TimeSpan.Zero),
+            page.Items[0].TokenLastIssuedDate!.Value);
+    }
+
+    // ──────────────────────────────────────────────
     // GenesysExtensionsClient + Paginator
     // ──────────────────────────────────────────────
 

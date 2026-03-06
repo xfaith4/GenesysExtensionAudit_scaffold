@@ -1,5 +1,6 @@
 // File: src/GenesysExtensionAudit.Infrastructure/Genesys/Dtos/Dtos.Users.cs
 using System.Text.Json.Serialization;
+using GenesysExtensionAudit.Infrastructure.Genesys.Json;
 
 namespace GenesysExtensionAudit.Infrastructure.Genesys.Dtos;
 
@@ -61,14 +62,18 @@ public sealed class GenesysUserDto
     /// Date/time of the last OAuth token issued to this user.
     /// Populated when fetching with expand=lasttokenissued.
     /// May be null for service accounts or users who have never logged in via OAuth.
+    /// The Genesys API may return an empty string instead of null for users
+    /// with no token history; the converter handles this gracefully.
     /// </summary>
     [JsonPropertyName("lasttokenissued")]
+    [JsonConverter(typeof(NullableDateTimeOffsetConverter))]
     public DateTimeOffset? TokenLastIssuedDate { get; init; }
 
     /// <summary>
     /// Backward-compatible mapping for tenants still returning tokenLastIssuedDate.
     /// </summary>
     [JsonPropertyName("tokenLastIssuedDate")]
+    [JsonConverter(typeof(NullableDateTimeOffsetConverter))]
     public DateTimeOffset? TokenLastIssuedDateLegacy { get; init; }
 
     /// <summary>
