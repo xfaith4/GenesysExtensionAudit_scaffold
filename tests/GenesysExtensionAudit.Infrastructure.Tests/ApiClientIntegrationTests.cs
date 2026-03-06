@@ -229,6 +229,256 @@ public sealed class ApiClientIntegrationTests
     }
 
     // ──────────────────────────────────────────────
+    // GroupDto.DateModified empty-string tolerance
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task GenesysGroupsClient_GetPage_DateModified_EmptyString_ReturnsNullDate()
+    {
+        // Genesys Cloud may return "" instead of null for groups that have never
+        // been modified. Without the global NullableDateTimeConverter this would
+        // throw a JsonException and crash the audit run.
+        var handler = new RouteMockHttpMessageHandler();
+
+        handler.WhenGet("/api/v2/groups?pageSize=1&pageNumber=1",
+            json: """
+                  {
+                    "entities": [
+                      { "id": "g1", "name": "Empty Group", "state": "active", "memberCount": 0, "dateModified": "" }
+                    ],
+                    "pageSize": 1, "pageNumber": 1, "pageCount": 1, "total": 1
+                  }
+                  """);
+
+        var client = BuildGroupsClient(handler, "mypurecloud.com");
+        var page = await client.GetGroupsPageAsync(pageNumber: 1, pageSize: 1, ct: default);
+
+        Assert.Single(page.Items);
+        Assert.Null(page.Items[0].DateModified);
+    }
+
+    [Fact]
+    public async Task GenesysGroupsClient_GetPage_DateModified_NullValue_ReturnsNullDate()
+    {
+        var handler = new RouteMockHttpMessageHandler();
+
+        handler.WhenGet("/api/v2/groups?pageSize=1&pageNumber=1",
+            json: """
+                  {
+                    "entities": [
+                      { "id": "g1", "name": "Group", "state": "active", "memberCount": 1, "dateModified": null }
+                    ],
+                    "pageSize": 1, "pageNumber": 1, "pageCount": 1, "total": 1
+                  }
+                  """);
+
+        var client = BuildGroupsClient(handler, "mypurecloud.com");
+        var page = await client.GetGroupsPageAsync(pageNumber: 1, pageSize: 1, ct: default);
+
+        Assert.Single(page.Items);
+        Assert.Null(page.Items[0].DateModified);
+    }
+
+    [Fact]
+    public async Task GenesysGroupsClient_GetPage_DateModified_ValidDate_ParsedCorrectly()
+    {
+        var handler = new RouteMockHttpMessageHandler();
+
+        handler.WhenGet("/api/v2/groups?pageSize=1&pageNumber=1",
+            json: """
+                  {
+                    "entities": [
+                      { "id": "g1", "name": "Group", "state": "active", "memberCount": 2, "dateModified": "2024-06-01T12:00:00.000Z" }
+                    ],
+                    "pageSize": 1, "pageNumber": 1, "pageCount": 1, "total": 1
+                  }
+                  """);
+
+        var client = BuildGroupsClient(handler, "mypurecloud.com");
+        var page = await client.GetGroupsPageAsync(pageNumber: 1, pageSize: 1, ct: default);
+
+        Assert.Single(page.Items);
+        Assert.NotNull(page.Items[0].DateModified);
+        Assert.Equal(new DateTime(2024, 6, 1, 12, 0, 0, DateTimeKind.Utc), page.Items[0].DateModified!.Value.ToUniversalTime());
+    }
+
+    // ──────────────────────────────────────────────
+    // QueueDto date fields empty-string tolerance
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task GenesysQueuesClient_GetPage_DateModified_EmptyString_ReturnsNullDate()
+    {
+        // Same Genesys API pattern: "" instead of null for queues with no modification date.
+        var handler = new RouteMockHttpMessageHandler();
+
+        handler.WhenGet("/api/v2/routing/queues?pageSize=1&pageNumber=1",
+            json: """
+                  {
+                    "entities": [
+                      { "id": "q1", "name": "Support", "memberCount": 0, "dateModified": "" }
+                    ],
+                    "pageSize": 1, "pageNumber": 1, "pageCount": 1, "total": 1
+                  }
+                  """);
+
+        var client = BuildQueuesClient(handler, "mypurecloud.com");
+        var page = await client.GetQueuesPageAsync(pageNumber: 1, pageSize: 1, ct: default);
+
+        Assert.Single(page.Items);
+        Assert.Null(page.Items[0].DateModified);
+    }
+
+    [Fact]
+    public async Task GenesysQueuesClient_GetPage_DateCreated_EmptyString_ReturnsNullDate()
+    {
+        var handler = new RouteMockHttpMessageHandler();
+
+        handler.WhenGet("/api/v2/routing/queues?pageSize=1&pageNumber=1",
+            json: """
+                  {
+                    "entities": [
+                      { "id": "q1", "name": "Support", "memberCount": 0, "dateCreated": "" }
+                    ],
+                    "pageSize": 1, "pageNumber": 1, "pageCount": 1, "total": 1
+                  }
+                  """);
+
+        var client = BuildQueuesClient(handler, "mypurecloud.com");
+        var page = await client.GetQueuesPageAsync(pageNumber: 1, pageSize: 1, ct: default);
+
+        Assert.Single(page.Items);
+        Assert.Null(page.Items[0].DateCreated);
+    }
+
+    // ──────────────────────────────────────────────
+    // FlowDto / FlowPublishedVersionDto date fields
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task GenesysFlowsClient_GetPage_PublishedDate_EmptyString_ReturnsNullDate()
+    {
+        // Flows whose publishedVersion.publishedDate is "" must not crash deserialization.
+        var handler = new RouteMockHttpMessageHandler();
+
+        handler.WhenGet("/api/v2/flows?pageSize=1&pageNumber=1&include=publishedVersion",
+            json: """
+                  {
+                    "entities": [
+                      {
+                        "id": "f1", "name": "Main IVR", "type": "INBOUNDCALL",
+                        "publishedVersion": { "id": "v1", "publishedDate": "" }
+                      }
+                    ],
+                    "pageSize": 1, "pageNumber": 1, "pageCount": 1, "total": 1
+                  }
+                  """);
+
+        var client = BuildFlowsClient(handler, "mypurecloud.com");
+        var page = await client.GetFlowsPageAsync(pageNumber: 1, pageSize: 1, ct: default);
+
+        Assert.Single(page.Items);
+        Assert.NotNull(page.Items[0].PublishedVersion);
+        Assert.Null(page.Items[0].PublishedVersion!.PublishedDate);
+    }
+
+    [Fact]
+    public async Task GenesysFlowsClient_GetPage_DateModified_EmptyString_ReturnsNullDate()
+    {
+        var handler = new RouteMockHttpMessageHandler();
+
+        handler.WhenGet("/api/v2/flows?pageSize=1&pageNumber=1&include=publishedVersion",
+            json: """
+                  {
+                    "entities": [
+                      { "id": "f1", "name": "Draft Flow", "type": "OUTBOUNDCALL", "dateModified": "" }
+                    ],
+                    "pageSize": 1, "pageNumber": 1, "pageCount": 1, "total": 1
+                  }
+                  """);
+
+        var client = BuildFlowsClient(handler, "mypurecloud.com");
+        var page = await client.GetFlowsPageAsync(pageNumber: 1, pageSize: 1, ct: default);
+
+        Assert.Single(page.Items);
+        Assert.Null(page.Items[0].DateModified);
+    }
+
+    [Fact]
+    public async Task GenesysFlowsClient_GetPage_DateCreated_EmptyString_ReturnsNullDate()
+    {
+        var handler = new RouteMockHttpMessageHandler();
+
+        handler.WhenGet("/api/v2/flows?pageSize=1&pageNumber=1&include=publishedVersion",
+            json: """
+                  {
+                    "entities": [
+                      { "id": "f1", "name": "Draft Flow", "type": "INBOUNDCALL", "dateCreated": "" }
+                    ],
+                    "pageSize": 1, "pageNumber": 1, "pageCount": 1, "total": 1
+                  }
+                  """);
+
+        var client = BuildFlowsClient(handler, "mypurecloud.com");
+        var page = await client.GetFlowsPageAsync(pageNumber: 1, pageSize: 1, ct: default);
+
+        Assert.Single(page.Items);
+        Assert.Null(page.Items[0].DateCreated);
+    }
+
+    // ──────────────────────────────────────────────
+    // OutboundEventDto.Timestamp empty-string tolerance
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task GenesysOutboundEventsClient_GetPage_Timestamp_EmptyString_ReturnsNullDate()
+    {
+        // OutboundEventDto.Timestamp is DateTimeOffset? — same issue class as lastTokenIssued.
+        var handler = new RouteMockHttpMessageHandler();
+
+        handler.WhenGet("/api/v2/outbound/events?pageSize=1&pageNumber=1",
+            json: """
+                  {
+                    "entities": [
+                      { "id": "ev1", "name": "Event 1", "timestamp": "", "level": "ERROR" }
+                    ],
+                    "pageSize": 1, "pageNumber": 1, "pageCount": 1, "total": 1
+                  }
+                  """);
+
+        var client = BuildOutboundEventsClient(handler, "mypurecloud.com");
+        var page = await client.GetOutboundEventsPageAsync(pageNumber: 1, pageSize: 1, ct: default);
+
+        Assert.Single(page.Items);
+        Assert.Null(page.Items[0].Timestamp);
+    }
+
+    [Fact]
+    public async Task GenesysOutboundEventsClient_GetPage_Timestamp_ValidDate_ParsedCorrectly()
+    {
+        var handler = new RouteMockHttpMessageHandler();
+
+        handler.WhenGet("/api/v2/outbound/events?pageSize=1&pageNumber=1",
+            json: """
+                  {
+                    "entities": [
+                      { "id": "ev1", "name": "Event 1", "timestamp": "2024-09-20T15:00:00.000Z", "level": "INFO" }
+                    ],
+                    "pageSize": 1, "pageNumber": 1, "pageCount": 1, "total": 1
+                  }
+                  """);
+
+        var client = BuildOutboundEventsClient(handler, "mypurecloud.com");
+        var page = await client.GetOutboundEventsPageAsync(pageNumber: 1, pageSize: 1, ct: default);
+
+        Assert.Single(page.Items);
+        Assert.NotNull(page.Items[0].Timestamp);
+        Assert.Equal(
+            new DateTimeOffset(2024, 9, 20, 15, 0, 0, TimeSpan.Zero),
+            page.Items[0].Timestamp!.Value);
+    }
+
+    // ──────────────────────────────────────────────
     // Helpers
     // ──────────────────────────────────────────────
 
@@ -248,6 +498,38 @@ public sealed class ApiClientIntegrationTests
         return new GenesysExtensionsClient(http, tokenProvider, regionOptions, NullLogger<GenesysExtensionsClient>.Instance);
     }
 
+    private static GenesysGroupsClient BuildGroupsClient(RouteMockHttpMessageHandler handler, string region)
+    {
+        var http = new HttpClient(handler);
+        var tokenProvider = new FakeTokenProvider("test-token");
+        var regionOptions = Options.Create(new GenesysRegionOptions { Region = region });
+        return new GenesysGroupsClient(http, tokenProvider, regionOptions, NullLogger<GenesysGroupsClient>.Instance);
+    }
+
+    private static GenesysQueuesClient BuildQueuesClient(RouteMockHttpMessageHandler handler, string region)
+    {
+        var http = new HttpClient(handler);
+        var tokenProvider = new FakeTokenProvider("test-token");
+        var regionOptions = Options.Create(new GenesysRegionOptions { Region = region });
+        return new GenesysQueuesClient(http, tokenProvider, regionOptions, NullLogger<GenesysQueuesClient>.Instance);
+    }
+
+    private static GenesysFlowsClient BuildFlowsClient(RouteMockHttpMessageHandler handler, string region)
+    {
+        var http = new HttpClient(handler);
+        var tokenProvider = new FakeTokenProvider("test-token");
+        var regionOptions = Options.Create(new GenesysRegionOptions { Region = region });
+        return new GenesysFlowsClient(http, tokenProvider, regionOptions, NullLogger<GenesysFlowsClient>.Instance);
+    }
+
+    private static GenesysOutboundEventsClient BuildOutboundEventsClient(RouteMockHttpMessageHandler handler, string region)
+    {
+        var http = new HttpClient(handler);
+        var tokenProvider = new FakeTokenProvider("test-token");
+        var regionOptions = Options.Create(new GenesysRegionOptions { Region = region });
+        return new GenesysOutboundEventsClient(http, tokenProvider, regionOptions, NullLogger<GenesysOutboundEventsClient>.Instance);
+    }
+
     // ──────────────────────────────────────────────
     // Mock infrastructure
     // ──────────────────────────────────────────────
@@ -261,7 +543,15 @@ public sealed class ApiClientIntegrationTests
 
         public void WhenGet(string pathAndQuery, string json, HttpStatusCode statusCode = HttpStatusCode.OK)
         {
-            _routes[pathAndQuery] = _ => new HttpResponseMessage(statusCode)
+            _routes["GET:" + pathAndQuery] = _ => new HttpResponseMessage(statusCode)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+        }
+
+        public void WhenPost(string pathAndQuery, string json, HttpStatusCode statusCode = HttpStatusCode.OK)
+        {
+            _routes["POST:" + pathAndQuery] = _ => new HttpResponseMessage(statusCode)
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
             };
@@ -282,10 +572,8 @@ public sealed class ApiClientIntegrationTests
 
             Calls[key] = Calls.TryGetValue(key, out var count) ? count + 1 : 1;
 
-            if (request.Method != HttpMethod.Get)
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.MethodNotAllowed));
-
-            if (_routes.TryGetValue(key, out var factory))
+            var routeKey = request.Method.Method + ":" + key;
+            if (_routes.TryGetValue(routeKey, out var factory))
                 return Task.FromResult(factory(request));
 
             var msg = $"No mock route registered for: {request.Method} {key}";

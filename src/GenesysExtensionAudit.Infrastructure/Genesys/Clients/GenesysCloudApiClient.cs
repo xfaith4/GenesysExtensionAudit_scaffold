@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using GenesysExtensionAudit.Infrastructure.Genesys.Json;
 using GenesysExtensionAudit.Infrastructure.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -21,7 +22,14 @@ public abstract class GenesysCloudApiClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        Converters =
+        {
+            // Genesys Cloud API sometimes returns "" instead of null for date fields.
+            // These converters treat empty/whitespace strings as null rather than throwing.
+            new NullableDateTimeOffsetConverter(),
+            new NullableDateTimeConverter()
+        }
     };
 
     private readonly HttpClient _http;
