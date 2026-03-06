@@ -35,7 +35,8 @@ public sealed class ExcelReportService : IExcelReportService
 
         WriteSummarySheet(wb, report);
         WriteExtDuplicatesProfileSheet(wb, report);
-        WriteExtPoolVsProfileSheet(wb, report);
+        WriteExtOwnershipMismatchSheet(wb, report);
+        WriteExtAssignVsProfileSheet(wb, report);
         WriteDidMismatchSheet(wb, report);
         WriteAuditLogsSheet(wb, report);
         WriteOperationalEventsSheet(wb, report);
@@ -63,8 +64,9 @@ public sealed class ExcelReportService : IExcelReportService
         var rows = new[]
         {
             ("Ext_Duplicates_Profile", "Extension Duplicates (Profile)", report.Options.RunExtensionAudit, er.DuplicateProfileExtensions.Count, "Critical", "Multiple users share the same work-phone extension"),
-            ("Ext_Pool_vs_Profile", "Extension Pool vs Profile Mismatches", report.Options.RunExtensionAudit, er.ProfileExtensionsNotAssigned.Count + er.AssignedExtensionsMissingFromProfiles.Count, "Warning", "Extensions in pool not on profiles, or on profiles not in pool"),
-            ("Invalid_Extensions", "Invalid Extension Values", report.Options.RunExtensionAudit, er.InvalidProfileExtensions.Count + er.InvalidAssignedExtensions.Count, "Warning", "Profile/pool extension values that failed normalization"),
+            ("Ext_Ownership_Mismatch", "Extension Ownership Mismatches", report.Options.RunExtensionAudit, er.ExtensionAssignedToWrongEntity.Count, "Critical", "Extension on user profile is assigned to a different entity in the telephony system (platform bug)"),
+            ("Ext_Assign_vs_Profile", "Extension Assignment vs Profile Mismatches", report.Options.RunExtensionAudit, er.ProfileExtensionsNotAssigned.Count + er.AssignedExtensionsMissingFromProfiles.Count, "Warning", "Extensions in assignments not on profiles, or on profiles not in assignments"),
+            ("Invalid_Extensions", "Invalid Extension Values", report.Options.RunExtensionAudit, er.InvalidProfileExtensions.Count + er.InvalidAssignedExtensions.Count, "Warning", "Profile/assignment extension values that failed normalization"),
             ("Empty_Groups", "Empty/Single-Member Groups", report.Options.RunGroupAudit, report.GroupFindings.Count, "Warning", "Groups with zero or one member"),
             ("Empty_Queues", "Empty/Duplicate Queues", report.Options.RunQueueAudit, report.QueueFindings.Count, "Warning", "Queues with zero members or duplicate names"),
             ("Stale_Flows", "Stale/Unpublished Flows", report.Options.RunFlowAudit, report.FlowFindings.Count, "Warning", $"Flows not republished in {report.Options.StaleFlowThresholdDays}+ days or never published"),
@@ -158,23 +160,59 @@ public sealed class ExcelReportService : IExcelReportService
         AdjustColumns(ws, 5);
     }
 
-    // ─── Extension Pool vs Profile ──────────────────────────────────────────
+    // ─── Extension Ownership Mismatches ────────────────────────────────────────
 
-    private static void WriteExtPoolVsProfileSheet(IXLWorkbook wb, AuditReportData report)
+    /// <summary>
+    /// Reports users whose profile extension exists in the telephony assignment list but is
+    /// assigned to a different entity — the primary known platform bug.
+    /// </summary>
+    private static void WriteExtOwnershipMismatchSheet(IXLWorkbook wb, AuditReportData report)
     {
-        var ws = wb.Worksheets.Add("Ext_Pool_vs_Profile");
+        var ws = wb.Worksheets.Add("Ext_Ownership_Mismatch");
+        var findings = report.ExtensionReport.ExtensionAssignedToWrongEntity;
+
+        string[] headers = ["Extension Key", "User Name", "User ID", "User State", "Extension (Raw)", "Assigned To Type", "Assigned To ID"];
+        WriteSheetHeader(ws, "Extension Ownership Mismatches — Profile vs Assignment", report, findings.Count, headers);
+
+        int row = 4;
+        foreach (var finding in findings)
+        {
+            foreach (var assignment in finding.ActualAssignments)
+            {
+                WriteRow(ws, row,
+                    finding.ExtensionKey,
+                    finding.User.UserName,
+                    finding.User.UserId,
+                    finding.User.State,
+                    finding.User.ExtensionRaw,
+                    assignment.TargetType,
+                    assignment.TargetId);
+                ApplyAltRow(ws, row, 7);
+                ws.Cell(row, 1).Style.Fill.BackgroundColor = SeverityCritical;
+                row++;
+            }
+        }
+
+        AdjustColumns(ws, 7);
+    }
+
+    // ─── Extension Assignment vs Profile ────────────────────────────────────
+
+    private static void WriteExtAssignVsProfileSheet(IXLWorkbook wb, AuditReportData report)
+    {
+        var ws = wb.Worksheets.Add("Ext_Assign_vs_Profile");
         var er = report.ExtensionReport;
         var totalCount = er.ProfileExtensionsNotAssigned.Count + er.AssignedExtensionsMissingFromProfiles.Count;
 
         string[] headers = ["Extension Key", "Issue Type", "Assignment ID", "User Name", "User ID", "Target Type"];
-        WriteSheetHeader(ws, "Extension Pool vs Profile Mismatches", report, totalCount, headers);
+        WriteSheetHeader(ws, "Extension Assignment vs Profile Mismatches", report, totalCount, headers);
 
         int row = 4;
         foreach (var finding in er.ProfileExtensionsNotAssigned)
         {
             foreach (var user in finding.Users)
             {
-                WriteRow(ws, row, finding.ExtensionKey, "On profile, not in pool", "", user.UserName, user.UserId, "");
+                WriteRow(ws, row, finding.ExtensionKey, "On profile, not in assignments", "", user.UserName, user.UserId, "");
                 ApplyAltRow(ws, row, 6);
                 ws.Cell(row, 3).Style.Fill.BackgroundColor = SeverityWarning;
                 row++;
@@ -185,7 +223,7 @@ public sealed class ExcelReportService : IExcelReportService
         {
             foreach (var a in finding.Assignments)
             {
-                WriteRow(ws, row, finding.ExtensionKey, "In pool, not on any profile", a.AssignmentId, "", "", a.TargetType);
+                WriteRow(ws, row, finding.ExtensionKey, "In assignments, not on any profile", a.AssignmentId, "", "", a.TargetType);
                 ApplyAltRow(ws, row, 6);
                 ws.Cell(row, 3).Style.Fill.BackgroundColor = SeverityInfo;
                 row++;
@@ -484,7 +522,7 @@ public sealed class ExcelReportService : IExcelReportService
 
         foreach (var f in er.InvalidAssignedExtensions)
         {
-            WriteRow(ws, row, "Pool", f.AssignmentId, "", f.ExtensionRaw, f.Status.ToString(), f.Notes);
+            WriteRow(ws, row, "Assignment", f.AssignmentId, "", f.ExtensionRaw, f.Status.ToString(), f.Notes);
             ApplyAltRow(ws, row, 6);
             row++;
         }

@@ -105,6 +105,18 @@ namespace GenesysExtensionAudit.Domain.Services
             IReadOnlyList<AssignmentExtensionDetail> Assignments
         );
 
+        /// <summary>
+        /// A user's profile extension exists in the telephony assignment list, but the assignment
+        /// is not owned by that user (it is assigned to a different user or a non-user entity).
+        /// This is the primary known platform bug: the profile and the telephony assignment system
+        /// are out of sync regarding extension ownership.
+        /// </summary>
+        public sealed record ExtensionAssignedToWrongEntityFinding(
+            string ExtensionKey,
+            ProfileExtensionDetail User,
+            IReadOnlyList<AssignmentExtensionDetail> ActualAssignments
+        );
+
         public sealed record InvalidProfileExtensionFinding(
             string UserId,
             string? UserName,
@@ -134,6 +146,14 @@ namespace GenesysExtensionAudit.Domain.Services
 
             public IReadOnlyList<AssignedExtensionMissingFromProfilesFinding> AssignedExtensionsMissingFromProfiles { get; init; }
                 = Array.Empty<AssignedExtensionMissingFromProfilesFinding>();
+
+            /// <summary>
+            /// Extensions present in the telephony assignment list for a user profile, but the assignment
+            /// is not owned by that user. This captures the primary platform bug where the assignment
+            /// record's owner does not match the user whose profile claims that extension.
+            /// </summary>
+            public IReadOnlyList<ExtensionAssignedToWrongEntityFinding> ExtensionAssignedToWrongEntity { get; init; }
+                = Array.Empty<ExtensionAssignedToWrongEntityFinding>();
 
             public IReadOnlyList<InvalidProfileExtensionFinding> InvalidProfileExtensions { get; init; }
                 = Array.Empty<InvalidProfileExtensionFinding>();
@@ -343,12 +363,48 @@ namespace GenesysExtensionAudit.Domain.Services
                     .ToList();
             }
 
+            // (5) Extension on profile exists in the assignment list, but the assignment is not
+            // owned by this user. This captures the primary platform bug: the user profile claims
+            // an extension that the telephony system has assigned to a different entity.
+            var ownershipMismatches = new List<ExtensionAssignedToWrongEntityFinding>();
+            foreach (var kvp in profileByExt)
+            {
+                var extKey = kvp.Key;
+                if (!assignByExt.TryGetValue(extKey, out var extAssignments))
+                    continue; // Not in assignments at all → captured by ProfileExtensionsNotAssigned
+
+                foreach (var user in kvp.Value)
+                {
+                    // The assignment is correct if it is explicitly owned by this user
+                    bool correctlyAssigned = extAssignments.Any(a =>
+                        string.Equals(a.TargetType, "USER", StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(a.TargetId, user.UserId, StringComparison.OrdinalIgnoreCase));
+
+                    if (correctlyAssigned)
+                        continue;
+
+                    var actualAssignments = extAssignments
+                        .OrderBy(a => a.TargetType ?? "", StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(a => a.TargetId ?? "", StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    ownershipMismatches.Add(new ExtensionAssignedToWrongEntityFinding(
+                        extKey, user, actualAssignments));
+                }
+            }
+
+            ownershipMismatches = ownershipMismatches
+                .OrderBy(f => f.ExtensionKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(f => f.User.UserName ?? "", StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
             return new AuditReport
             {
                 DuplicateProfileExtensions = dupProfiles,
                 DuplicateAssignedExtensions = dupAssigned,
                 ProfileExtensionsNotAssigned = unassigned,
                 AssignedExtensionsMissingFromProfiles = assignedMissingProfiles,
+                ExtensionAssignedToWrongEntity = ownershipMismatches,
                 InvalidProfileExtensions = invalidProfile
                     .OrderBy(i => i.UserName ?? "", StringComparer.OrdinalIgnoreCase)
                     .ThenBy(i => i.UserId, StringComparer.OrdinalIgnoreCase)

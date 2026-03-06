@@ -304,6 +304,7 @@ public sealed class AuditOrchestrator : IAuditOrchestrator
             + extensionReport.DuplicateAssignedExtensions.Count
             + extensionReport.ProfileExtensionsNotAssigned.Count
             + extensionReport.AssignedExtensionsMissingFromProfiles.Count
+            + extensionReport.ExtensionAssignedToWrongEntity.Count
             + extensionReport.InvalidProfileExtensions.Count
             + extensionReport.InvalidAssignedExtensions.Count
             + groupFindings.Count + queueFindings.Count

@@ -282,6 +282,25 @@ Quick health check totals:
 - If extension should exist: recreate it in Genesys telephony.
 - If extension is stale: clear the user's Work Phone extension field.
 
+### Extension Ownership Mismatches (Platform Bug Detection)
+
+**What:** A user's profile extension exists in the telephony assignment list, but the assignment record shows the extension is owned by a different entity — not the user whose profile claims it.
+
+**Why it matters:** This is a known Genesys Cloud platform bug. The user profile and the telephony assignment system are out of sync. Calls to the extension may be routed incorrectly, or the user may be unreachable despite having an extension on their profile.
+
+**Common causes:**
+
+- A Genesys platform synchronization failure between user profiles and telephony assignments
+- Manual provisioning inconsistencies where the extension was reassigned in telephony but the old user's profile was not cleared
+- Extension recycling where a new user received the assignment but an old profile still claims the number
+
+**How to fix:**
+
+- Verify the intended owner of the extension in both the user profile and the telephony administration.
+- Correct the assignment in Genesys telephony to point to the correct user.
+- Clear the extension field on any profile that incorrectly claims it.
+- Report persistent occurrences to Genesys Cloud support as a platform synchronization bug.
+
 ### Other exported sections
 
 | Section | Meaning |
@@ -303,7 +322,8 @@ Workbook output includes:
 
 - `Summary` (audits performed, item counts, severity, run timing)
 - `Ext_Duplicates_Profile`
-- `Ext_Pool_vs_Profile`
+- `Ext_Ownership_Mismatch` (extension on profile assigned to a different entity — platform bug detection)
+- `Ext_Assign_vs_Profile`
 - `Invalid_Extensions`
 - `Empty_Groups`
 - `Empty_Queues`
